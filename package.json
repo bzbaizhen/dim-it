@@ -49,6 +49,9 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
+    },
+    "toolsets": {
+      "nsis": "1.2.1"
     }
   },
   "dependencies": {
