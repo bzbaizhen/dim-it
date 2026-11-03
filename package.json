@@ -1,6 +1,6 @@
 {
   "name": "dim-it",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "Dim It - PDF 图纸工作台 | Offline PDF drawing measurement",
   "author": "Dim It",
@@ -13,7 +13,7 @@
     "build": "node scripts/copy-pdf-assets.mjs && tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "test:e2e": "node tests/quickstart-e2e.mjs && node tests/e2e.mjs && node tests/snap-e2e.mjs && node tests/smarttrack-e2e.mjs",
+    "test:e2e": "node tests/i18n-e2e.mjs && node tests/quickstart-e2e.mjs && node tests/e2e.mjs && node tests/snap-e2e.mjs && node tests/smarttrack-e2e.mjs",
     "package:mac": "npm run build && electron-builder --mac dmg --arm64",
     "package:win": "npm run build && electron-builder --win nsis --x64",
     "pretest": "node scripts/create-test-fixtures.mjs",
@@ -23,7 +23,7 @@
     "appId": "local.planmeasure.desktop",
     "productName": "Dim It",
     "directories": {
-      "output": "release/0.4.0"
+      "output": "release/0.4.1"
     },
     "files": [
       "dist/**/*",

@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
@@ -39,7 +40,7 @@ export async function openPDF(bytes: Uint8Array): Promise<PDFDocumentProxy> {
   } catch (error) {
     await task.destroy().catch(() => {});
     if (error instanceof Error && error.name === "PasswordException") {
-      throw new Error("请先使用 PDF 阅读器解锁文件，再打开");
+      throw new Error(t("请先使用 PDF 阅读器解锁文件，再打开"));
     }
     throw error;
   }
@@ -205,6 +206,6 @@ export async function exportPDF(
       ),
     );
   }
-  pdf.setProducer("Dim It 0.4");
+  pdf.setProducer("Dim It 0.4.1");
   return pdf.save();
 }

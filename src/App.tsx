@@ -1,3 +1,4 @@
+import { t, useLanguage, setLanguage } from "./i18n.ts";
 import {
   useCallback,
   useEffect,
@@ -92,6 +93,7 @@ function Thumbnail({
   count: number;
   onSelect: () => void;
 }) {
+  useLanguage();
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     let canceled = false;
@@ -119,7 +121,7 @@ function Thumbnail({
     <button
       className={`thumbnail ${active ? "active" : ""}`}
       onClick={onSelect}
-      aria-label={`第 ${page} 页`}
+      aria-label={t`第 ${page} 页`}
       aria-current={active ? "page" : undefined}
     >
       <div className="thumbnail-paper">
@@ -128,7 +130,7 @@ function Thumbnail({
       </div>
       <span>
         <b>{String(page).padStart(2, "0")}</b>
-        <small>{calibrated ? "已校准" : "未校准"}</small>
+        <small>{calibrated ? t("已校准") : t("未校准")}</small>
         {calibrated && <Check size={12} />}
       </span>
     </button>
@@ -136,6 +138,15 @@ function Thumbnail({
 }
 
 export default function App() {
+  const language = useLanguage();
+  useEffect(() => {
+    window.document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+    window.document.title =
+      language === "en"
+        ? "Dim It · PDF Drawing Workbench"
+        : "Dim It · PDF 图纸工作台";
+    window.desktop?.setLanguage(language);
+  }, [language]);
   const [document, setDocument] = useState<DocumentState | null>(null);
   const [data, setData] = useState<ProjectData>(initialData);
   const dataRef = useRef(data);
@@ -332,10 +343,10 @@ export default function App() {
         setPage(restoredPage);
         setFileDirty(true);
         await fit(pdf, restoredPage, restored.rotations);
-        notify("已恢复上次的图纸、校准和标注");
+        notify(t("已恢复上次的图纸、校准和标注"));
       })
       .catch((error) =>
-        notify(`本地恢复失败，可重新打开 PDF。${errorMessage(error)}`, true),
+        notify(t`本地恢复失败，可重新打开 PDF。${errorMessage(error)}`, true),
       )
       .finally(() => {
         if (!canceled) setReady(true);
@@ -503,7 +514,7 @@ export default function App() {
         if (!canceled) setRendered(true);
       })
       .catch((error) => {
-        if (!canceled) notify(`图纸渲染失败。${errorMessage(error)}`, true);
+        if (!canceled) notify(t`图纸渲染失败。${errorMessage(error)}`, true);
       });
     return () => {
       canceled = true;
@@ -563,7 +574,7 @@ export default function App() {
           })
           .catch((error) => {
             if (!canceled && error?.name !== "RenderingCancelledException")
-              notify(`局部高清渲染失败。${errorMessage(error)}`, true);
+              notify(t`局部高清渲染失败。${errorMessage(error)}`, true);
           });
       }, 120);
     };
@@ -632,12 +643,14 @@ export default function App() {
       fileDirty &&
       document &&
       !window.confirm(
-        "当前图纸尚未另存为项目文件。打开新文件会替换自动恢复记录，继续打开？",
+        t(
+          "当前图纸尚未另存为项目文件。打开新文件会替换自动恢复记录，继续打开？",
+        ),
       )
     )
       return;
     operation.current = true;
-    setBusy("正在打开图纸");
+    setBusy(t("正在打开图纸"));
     let candidate: PDFDocumentProxy | undefined;
     try {
       let pdfBytes = bytes;
@@ -650,7 +663,7 @@ export default function App() {
           typeof project.pdf !== "string" ||
           typeof project.filename !== "string"
         )
-          throw new Error("不支持的项目格式");
+          throw new Error(t("不支持的项目格式"));
         pdfBytes = base64ToBytes(project.pdf);
         filename = project.filename;
         candidate = await openPDF(pdfBytes);
@@ -681,13 +694,13 @@ export default function App() {
         }, 100);
       notify(
         demo
-          ? "示例已打开，点击「校准比例」开始"
-          : `已打开 ${candidate.numPages} 页图纸`,
+          ? t("示例已打开，点击「校准比例」开始")
+          : t`已打开 ${candidate.numPages} 页图纸`,
       );
     } catch (error) {
       if (candidate && candidate !== activeDocument.current?.pdf)
         void candidate.loadingTask.destroy();
-      notify(`打开失败，原图纸保留。${errorMessage(error)}`, true);
+      notify(t`打开失败，原图纸保留。${errorMessage(error)}`, true);
     } finally {
       setBusy("");
       operation.current = false;
@@ -700,7 +713,7 @@ export default function App() {
         const result = await window.desktop.openFile();
         if (result) await acceptFile(result.name, new Uint8Array(result.bytes));
       } catch (error) {
-        notify(`读取失败。${errorMessage(error)}`, true);
+        notify(t`读取失败。${errorMessage(error)}`, true);
       }
     } else input.current?.click();
   }
@@ -732,7 +745,7 @@ export default function App() {
   async function saveProject() {
     if (!document || operation.current) return;
     operation.current = true;
-    setBusy("正在保存项目");
+    setBusy(t("正在保存项目"));
     const savedRevision = revision.current;
     try {
       const content = JSON.stringify({
@@ -748,10 +761,10 @@ export default function App() {
       );
       if (saved) {
         if (revision.current === savedRevision) setFileDirty(false);
-        notify("项目已保存，包含原 PDF、校准和可编辑标注");
+        notify(t("项目已保存，包含原 PDF、校准和可编辑标注"));
       }
     } catch (error) {
-      notify(`保存失败。${errorMessage(error)}`, true);
+      notify(t`保存失败。${errorMessage(error)}`, true);
     } finally {
       setBusy("");
       operation.current = false;
@@ -762,7 +775,7 @@ export default function App() {
     setExportMenu(false);
     if (!document || operation.current) return;
     operation.current = true;
-    setBusy(type === "pdf" ? "正在导出标注 PDF" : "正在导出清单");
+    setBusy(type === "pdf" ? t("正在导出标注 PDF") : t("正在导出清单"));
     try {
       const bytes =
         type === "pdf"
@@ -776,11 +789,11 @@ export default function App() {
       if (saved)
         notify(
           type === "pdf"
-            ? "带标注 PDF 已导出，可在其他阅读器查看"
-            : "测量清单已导出",
+            ? t("带标注 PDF 已导出，可在其他阅读器查看")
+            : t("测量清单已导出"),
         );
     } catch (error) {
-      notify(`导出失败。${errorMessage(error)}`, true);
+      notify(t`导出失败。${errorMessage(error)}`, true);
     } finally {
       setBusy("");
       operation.current = false;
@@ -790,7 +803,7 @@ export default function App() {
   function chooseTool(next: Tool) {
     if (next === "measure" && !scale) {
       setTool("calibrate");
-      notify("请先选取已知尺寸的两个端点，校准当前页");
+      notify(t("请先选取已知尺寸的两个端点，校准当前页"));
       return;
     }
     setTool(next);
@@ -929,7 +942,7 @@ export default function App() {
       return;
     }
     if (snapEnabled && !event.altKey && snapStatus === "loading") {
-      notify("正在准备矢量捕捉，请稍后选点，也可按住 Alt 自由选点");
+      notify(t("正在准备矢量捕捉，请稍后选点，也可按住 Alt 自由选点"));
       return;
     }
     const point = toPDF(event);
@@ -940,7 +953,7 @@ export default function App() {
       return;
     }
     if (distance(anchor, point) * zoom < 3) {
-      notify("两点距离过近，请放大后重新选点", true);
+      notify(t("两点距离过近，请放大后重新选点"), true);
       return;
     }
     if (tool === "calibrate") {
@@ -991,7 +1004,7 @@ export default function App() {
       change({ ...data, scales });
       setCalibrationPoints(null);
       setTool("measure");
-      notify("当前页校准完成，可以连续测量");
+      notify(t("当前页校准完成，可以连续测量"));
     } catch (error) {
       setCalibrationError(errorMessage(error));
     }
@@ -1211,19 +1224,19 @@ export default function App() {
 
   const instructions = trackingActive
     ? trackHit
-      ? "已对齐参考点，点击确认正交落点"
-      : "正交选点 · 悬停捕捉点获取智慧轨迹"
+      ? t("已对齐参考点，点击确认正交落点")
+      : t("正交选点 · 悬停捕捉点获取智慧轨迹")
     : tool === "calibrate"
       ? anchor
-        ? "选择已知尺寸的第二个端点"
-        : "选择已知尺寸的第一个端点"
+        ? t("选择已知尺寸的第二个端点")
+        : t("选择已知尺寸的第一个端点")
       : tool === "measure"
         ? anchor
-          ? "选择第二点，完成一次测量"
-          : "选择第一点，开始测量"
+          ? t("选择第二点，完成一次测量")
+          : t("选择第一点，开始测量")
         : tool === "pan"
-          ? "拖动画布平移，⌘ / Ctrl + 滚轮缩放"
-          : "点击标注以选择，可编辑备注或删除";
+          ? t("拖动画布平移，⌘ / Ctrl + 滚轮缩放")
+          : t("点击标注以选择，可编辑备注或删除");
 
   return (
     <div
@@ -1239,7 +1252,7 @@ export default function App() {
           void file
             .arrayBuffer()
             .then((bytes) => acceptFile(file.name, new Uint8Array(bytes)));
-        else notify("请拖入 PDF 或 .planmeasure 项目文件", true);
+        else notify(t("请拖入 PDF 或 .planmeasure 项目文件"), true);
       }}
     >
       <input
@@ -1263,7 +1276,7 @@ export default function App() {
             <Ruler size={23} />
           </span>
           <strong>Dim It</strong>
-          <span className="version">0.4</span>
+          <span className="version">0.4.1</span>
         </div>
         <div className="document-title" title={document?.name}>
           {document ? (
@@ -1271,29 +1284,42 @@ export default function App() {
               <span className="file-dot" />
               {document.name}
               {fileDirty && (
-                <span className="dirty" title="尚未另存项目">
+                <span className="dirty" title={t("尚未另存项目")}>
                   •
                 </span>
               )}
             </>
           ) : (
-            "图纸测量工作台"
+            t("图纸测量工作台")
           )}
         </div>
+        <select
+          className="language-select"
+          aria-label="Language / 语言"
+          value={language}
+          disabled={!!busy}
+          onChange={(event) => {
+            if (!setLanguage(event.target.value as "zh" | "en"))
+              notify(t("语言偏好保存失败，下次启动可能恢复中文"), true);
+          }}
+        >
+          <option value="zh">简体中文</option>
+          <option value="en">English</option>
+        </select>
         <button
           className="icon-button"
-          title="使用帮助"
-          aria-label="使用帮助"
+          title={t("使用帮助")}
+          aria-label={t("使用帮助")}
           onClick={() => setHelp(true)}
         >
           <HelpCircle size={18} />
         </button>
       </header>
-      <nav className="toolbar" aria-label="图纸工具">
+      <nav className="toolbar" aria-label={t("图纸工具")}>
         <div className="toolgroup">
           <button onClick={() => void openFile()} disabled={!!busy || !ready}>
             <FolderOpen size={17} />
-            打开图纸
+            {t("打开图纸")}
           </button>
           <button
             className="save-button"
@@ -1301,7 +1327,7 @@ export default function App() {
             disabled={!document || !!busy}
           >
             <Save size={17} />
-            保存项目
+            {t("保存项目")}
           </button>
         </div>
         <span className="divider" />
@@ -1310,58 +1336,58 @@ export default function App() {
             className={tool === "select" ? "active" : ""}
             onClick={() => chooseTool("select")}
             disabled={!document}
-            title="选择 V"
+            title={t("选择 V")}
           >
             <MousePointer2 size={17} />
-            <span>选择</span>
+            <span>{t("选择")}</span>
           </button>
           <button
             className={tool === "pan" ? "active" : ""}
             onClick={() => chooseTool("pan")}
             disabled={!document}
-            title="平移 H / 空格"
+            title={t("平移 H / 空格")}
           >
             <Hand size={17} />
-            <span>平移</span>
+            <span>{t("平移")}</span>
           </button>
           <button
             className={tool === "calibrate" ? "active" : ""}
             onClick={() => chooseTool("calibrate")}
             disabled={!document}
-            title="校准 C"
+            title={t("校准 C")}
           >
             <Crosshair size={18} />
-            校准比例
+            {t("校准比例")}
           </button>
           <button
             className={tool === "measure" ? "active" : ""}
             onClick={() => chooseTool("measure")}
             disabled={!document}
-            title="测量 M"
+            title={t("测量 M")}
           >
             <Ruler size={18} />
-            长度测量
+            {t("长度测量")}
           </button>
         </div>
         <span className="divider" />
         <div className="toolgroup">
           <button
             className={snapEnabled ? "active snap-toggle" : "snap-toggle"}
-            aria-label="对象捕捉"
+            aria-label={t("对象捕捉")}
             aria-pressed={snapEnabled}
-            title="对象捕捉 S，按住 Alt 临时自由选点"
+            title={t("对象捕捉 S，按住 Alt 临时自由选点")}
             disabled={!document}
             onClick={() => setSnapEnabled((enabled) => !enabled)}
           >
             <Magnet size={17} />
-            <span>捕捉</span>
+            <span>{t("捕捉")}</span>
           </button>
         </div>
         <div className="toolgroup">
           <button
             className="icon-button"
-            aria-label="撤销"
-            title="撤销 ⌘ / Ctrl + Z"
+            aria-label={t("撤销")}
+            title={t("撤销 ⌘ / Ctrl + Z")}
             onClick={undo}
             disabled={!history.past.length}
           >
@@ -1369,8 +1395,8 @@ export default function App() {
           </button>
           <button
             className="icon-button"
-            aria-label="重做"
-            title="重做 ⌘ / Ctrl + Shift + Z"
+            aria-label={t("重做")}
+            title={t("重做 ⌘ / Ctrl + Shift + Z")}
             onClick={redo}
             disabled={!history.future.length}
           >
@@ -1385,22 +1411,24 @@ export default function App() {
             disabled={!document || !!busy}
           >
             <ArrowDownToLine size={16} />
-            导出
+            {t("导出")}
             <ChevronDown size={14} />
           </button>
           {exportMenu && (
             <>
               <button
                 className="menu-dismiss"
-                aria-label="关闭导出菜单"
+                aria-label={t("关闭导出菜单")}
                 onClick={() => setExportMenu(false)}
               />
               <div className="dropdown">
                 <button onClick={() => void exportFile("pdf")}>
-                  带标注 PDF<small>供查看与打印</small>
+                  {t("带标注 PDF")}
+                  <small>{t("供查看与打印")}</small>
                 </button>
                 <button onClick={() => void exportFile("csv")}>
-                  测量清单 CSV<small>尺寸与备注</small>
+                  {t("测量清单 CSV")}
+                  <small>{t("尺寸与备注")}</small>
                 </button>
               </div>
             </>
@@ -1410,8 +1438,10 @@ export default function App() {
       <main className="workspace">
         <aside className="pages-sidebar">
           <div className="panel-heading">
-            <span>图纸页面</span>
-            <small>{document ? `${document.pdf.numPages} 页` : "0 页"}</small>
+            <span>{t("图纸页面")}</span>
+            <small>
+              {document ? t`${document.pdf.numPages} 页` : t("0 页")}
+            </small>
           </div>
           <div className="thumbnails">
             {document ? (
@@ -1433,15 +1463,16 @@ export default function App() {
               <div className="pages-empty">
                 <FilePlus2 size={27} />
                 <span>
-                  打开 PDF 后<br />
-                  在这里切换页面
+                  {t("打开 PDF 后")}
+                  <br />
+                  {t("在这里切换页面")}
                 </span>
               </div>
             )}
           </div>
           <div className="local-note">
             <ShieldCheck size={14} />
-            文件仅在本机处理
+            {t("文件仅在本机处理")}
           </div>
         </aside>
         <section className="drawing-workspace">
@@ -1450,31 +1481,33 @@ export default function App() {
               <span />
               {document
                 ? scale
-                  ? "当前页已校准"
-                  : "当前页待校准"
-                : "准备就绪"}
+                  ? t("当前页已校准")
+                  : t("当前页待校准")
+                : t("准备就绪")}
             </span>
             {document && (
               <span
                 className={`snap-status ${snapStatus}`}
                 data-testid="snap-status"
-                title="端点、直线中点和有限线段交点。按住 Alt 临时自由选点。"
+                title={t(
+                  "端点、直线中点和有限线段交点。按住 Alt 临时自由选点。",
+                )}
               >
                 {!snapEnabled
-                  ? "自由选点"
+                  ? t("自由选点")
                   : snapStatus === "loading"
-                    ? "矢量捕捉准备中"
+                    ? t("矢量捕捉准备中")
                     : snapStatus === "empty"
-                      ? "此页无矢量直线 · 手动选点"
+                      ? t("此页无矢量直线 · 手动选点")
                       : snapStatus === "error"
-                        ? "捕捉解析失败 · 手动选点"
-                        : "端点 / 中点 / 交点捕捉"}
+                        ? t("捕捉解析失败 · 手动选点")
+                        : t("端点 / 中点 / 交点捕捉")}
               </span>
             )}
             <span className="canvas-bar-right">
-              {document ? `第 ${page} 页` : "PDF 工作区"}
+              {document ? t`第 ${page} 页` : t("PDF 工作区")}
               <span className="small-divider" />
-              {document ? unitLabels[data.unit] : "本地离线"}
+              {document ? t(unitLabels[data.unit]) : t("本地离线")}
             </span>
           </div>
           <div
@@ -1626,7 +1659,8 @@ export default function App() {
                                     screen(trackingCandidate.point).y - 12,
                                   )}
                                 >
-                                  停留获取{snapLabels[trackingCandidate.kind]}
+                                  {t("停留获取")}
+                                  {t(snapLabels[trackingCandidate.kind])}
                                 </text>
                               </g>
                             )}
@@ -1651,7 +1685,7 @@ export default function App() {
                           anchor,
                           cursor,
                           tool === "calibrate"
-                            ? "已知尺寸"
+                            ? t("已知尺寸")
                             : formatDistance(
                                 distance(anchor, cursor) *
                                   (scale?.mmPerPoint || 0),
@@ -1665,7 +1699,7 @@ export default function App() {
                       {calibrationPoints &&
                         dimension(
                           ...calibrationPoints,
-                          "校准参考线",
+                          t("校准参考线"),
                           "#d08a18",
                           "calibration-preview",
                           true,
@@ -1701,7 +1735,7 @@ export default function App() {
                             data-pdf-x={snapHit.point.x}
                             data-pdf-y={snapHit.point.y}
                             role="img"
-                            aria-label={`已捕捉${snapLabels[snapHit.kind]}`}
+                            aria-label={t`已捕捉${t(snapLabels[snapHit.kind])}`}
                           >
                             <circle
                               className="snap-halo"
@@ -1740,7 +1774,7 @@ export default function App() {
                                 rx={4}
                               />
                               <text x={26.5} y={15.5} textAnchor="middle">
-                                {snapLabels[snapHit.kind]}
+                                {t(snapLabels[snapHit.kind])}
                               </text>
                             </g>
                           </g>
@@ -1754,7 +1788,7 @@ export default function App() {
                           data-source-x={trackHit.source.point.x}
                           data-source-y={trackHit.source.point.y}
                           role="img"
-                          aria-label="智慧轨迹正交交点"
+                          aria-label={t("智慧轨迹正交交点")}
                         >
                           <path
                             className="smart-target"
@@ -1765,7 +1799,7 @@ export default function App() {
                           >
                             <rect width={77} height={24} rx={4} />
                             <text x={38.5} y={16} textAnchor="middle">
-                              正交追踪
+                              {t("正交追踪")}
                             </text>
                           </g>
                         </g>
@@ -1780,23 +1814,23 @@ export default function App() {
                   <ScanLine size={49} strokeWidth={1} />
                   <Ruler size={23} strokeWidth={1.5} />
                 </div>
-                <span className="welcome-kicker">从图纸到尺寸</span>
+                <span className="welcome-kicker">{t("从图纸到尺寸")}</span>
                 <h1>
-                  让每一段距离
+                  {t("让每一段距离")}
                   <br />
-                  都有准确的尺度。
+                  {t("都有准确的尺度。")}
                 </h1>
-                <p>打开 PDF，校准一个已知尺寸，即可开始测量。</p>
+                <p>{t("打开 PDF，校准一个已知尺寸，即可开始测量。")}</p>
                 <button
                   className="primary"
                   onClick={() => void openFile()}
                   disabled={!ready || !!busy}
                 >
                   <FolderOpen size={18} />
-                  打开 PDF 图纸
+                  {t("打开 PDF 图纸")}
                 </button>
                 <span className="drop-hint">
-                  也可以将 PDF 或项目文件拖入窗口
+                  {t("也可以将 PDF 或项目文件拖入窗口")}
                 </span>
                 <button
                   className="demo-link"
@@ -1809,18 +1843,21 @@ export default function App() {
                   }}
                   disabled={!ready || !!busy}
                 >
-                  用示例图纸体验
+                  {t("用示例图纸体验")}
                   <ChevronRight size={14} />
                 </button>
                 <div className="welcome-steps">
                   <span>
-                    <b>1</b>选取参考两点
+                    <b>1</b>
+                    {t("选取参考两点")}
                   </span>
                   <span>
-                    <b>2</b>输入真实尺寸
+                    <b>2</b>
+                    {t("输入真实尺寸")}
                   </span>
                   <span>
-                    <b>3</b>连续测量标注
+                    <b>3</b>
+                    {t("连续测量标注")}
                   </span>
                 </div>
               </div>
@@ -1832,15 +1869,15 @@ export default function App() {
                 <span className={`instruction-dot ${tool}`} />
                 {instructions}
                 {(tool === "measure" || tool === "calibrate") && (
-                  <kbd>Shift 约束水平 / 垂直</kbd>
+                  <kbd>{t("Shift 约束水平 / 垂直")}</kbd>
                 )}
-                {anchor && <kbd>Esc 取消</kbd>}
+                {anchor && <kbd>{t("Esc 取消")}</kbd>}
               </div>
               <div className="view-controls">
                 <button
                   className="icon-button"
                   onClick={() => setZoomAt(zoom / 1.25)}
-                  aria-label="缩小"
+                  aria-label={t("缩小")}
                 >
                   <Minus size={16} />
                 </button>
@@ -1854,7 +1891,7 @@ export default function App() {
                 <button
                   className="icon-button"
                   onClick={() => setZoomAt(zoom * 1.25)}
-                  aria-label="放大"
+                  aria-label={t("放大")}
                 >
                   <Plus size={16} />
                 </button>
@@ -1862,8 +1899,8 @@ export default function App() {
                 <button
                   className="icon-button"
                   onClick={() => void fit(document.pdf, page, data.rotations)}
-                  aria-label="适合页面"
-                  title="适合页面"
+                  aria-label={t("适合页面")}
+                  title={t("适合页面")}
                 >
                   <Maximize size={16} />
                 </button>
@@ -1878,8 +1915,8 @@ export default function App() {
                       },
                     })
                   }
-                  aria-label="旋转页面"
-                  title="顺时针旋转 90°"
+                  aria-label={t("旋转页面")}
+                  title={t("顺时针旋转 90°")}
                 >
                   <RotateCw size={16} />
                 </button>
@@ -1889,11 +1926,11 @@ export default function App() {
         </section>
         <aside className="inspector">
           <div className="panel-heading">
-            <span>测量设置</span>
+            <span>{t("测量设置")}</span>
             <Ruler size={15} />
           </div>
           <section className="settings-section">
-            <label htmlFor="unit">显示单位</label>
+            <label htmlFor="unit">{t("显示单位")}</label>
             <select
               id="unit"
               value={data.unit}
@@ -1904,13 +1941,13 @@ export default function App() {
             >
               {Object.entries(unitLabels).map(([key, label]) => (
                 <option key={key} value={key}>
-                  {label}
+                  {t(label)}
                 </option>
               ))}
             </select>
             <div className="precision-row">
               <label htmlFor="precision">
-                {data.unit === "ft-in" ? "分数精度" : "小数位数"}
+                {data.unit === "ft-in" ? t("分数精度") : t("小数位数")}
               </label>
               {data.unit === "ft-in" ? (
                 <span>1/16 inch</span>
@@ -1925,18 +1962,19 @@ export default function App() {
                 >
                   {[0, 1, 2, 3].map((value) => (
                     <option key={value} value={value}>
-                      {value} 位
+                      {value}
+                      {language === "zh" && t("位")}
                     </option>
                   ))}
                 </select>
               )}
             </div>
-            <label>标注颜色</label>
+            <label>{t("标注颜色")}</label>
             <div className="color-options">
               {colors.map((value) => (
                 <button
                   key={value}
-                  aria-label={`颜色 ${value}`}
+                  aria-label={t`颜色 ${value}`}
                   className={value === color ? "chosen" : ""}
                   style={{ background: value }}
                   onClick={() => {
@@ -1960,11 +1998,11 @@ export default function App() {
           <section className="calibration-card">
             <div className="section-title">
               <Crosshair size={16} />
-              <strong>比例校准</strong>
+              <strong>{t("比例校准")}</strong>
               {scale && (
                 <span className="verified">
                   <Check size={11} />
-                  已校准
+                  {t("已校准")}
                 </span>
               )}
             </div>
@@ -1973,36 +2011,37 @@ export default function App() {
                 <div className="reference-value">
                   {formatDistance(scale.millimeters, data.unit, data.precision)}
                 </div>
-                <p>参考线实际尺寸 · 仅作用于当前页</p>
+                <p>{t("参考线实际尺寸 · 仅作用于当前页")}</p>
                 <button
                   className="subtle-button"
                   onClick={() => chooseTool("calibrate")}
                 >
-                  重新校准
+                  {t("重新校准")}
                 </button>
                 <small className="recalculate-note">
-                  重新校准会同步重算本页测量。
+                  {t("重新校准会同步重算本页测量。")}
                 </small>
               </>
             ) : (
               <>
-                <p>选取图纸上有明确尺寸标注的两点，输入实际距离。</p>
+                <p>{t("选取图纸上有明确尺寸标注的两点，输入实际距离。")}</p>
                 <button
                   className="subtle-button"
                   disabled={!document}
                   onClick={() => chooseTool("calibrate")}
                 >
                   <Crosshair size={14} />
-                  校准当前页
+                  {t("校准当前页")}
                 </button>
               </>
             )}
           </section>
           <div className="panel-heading list-heading">
             <span>
-              测量记录 <small>{pageMeasurements.length}</small>
+              {t("测量记录")}
+              <small>{pageMeasurements.length}</small>
             </span>
-            <span className="list-scope">当前页</span>
+            <span className="list-scope">{t("当前页")}</span>
           </div>
           <div className="measurements-list">
             {pageMeasurements.length ? (
@@ -2031,7 +2070,7 @@ export default function App() {
                           data.precision,
                         )}
                       </strong>
-                      <small>{item.note || "长度测量"}</small>
+                      <small>{item.note || t("长度测量")}</small>
                     </span>
                     <Ruler size={14} />
                   </button>
@@ -2040,11 +2079,11 @@ export default function App() {
             ) : (
               <div className="records-empty">
                 <Ruler size={29} strokeWidth={1.2} />
-                <strong>等待第一条测量</strong>
+                <strong>{t("等待第一条测量")}</strong>
                 <p>
                   {scale
-                    ? "点击「长度测量」，在图纸上选取两个端点。"
-                    : "完成比例校准后，即可在图纸上连续测量。"}
+                    ? t("点击「长度测量」，在图纸上选取两个端点。")
+                    : t("完成比例校准后，即可在图纸上连续测量。")}
                 </p>
               </div>
             )}
@@ -2052,12 +2091,12 @@ export default function App() {
           {selectedMeasurement && (
             <div className="selection-editor">
               <div>
-                <label htmlFor="note">标注备注</label>
+                <label htmlFor="note">{t("标注备注")}</label>
                 <button
                   className="icon-button danger"
                   onClick={removeSelected}
-                  aria-label="删除标注"
-                  title="删除 Delete"
+                  aria-label={t("删除标注")}
+                  title={t("删除 Delete")}
                 >
                   <Trash2 size={15} />
                 </button>
@@ -2067,7 +2106,7 @@ export default function App() {
                 key={selectedMeasurement.id + selectedMeasurement.note}
                 defaultValue={selectedMeasurement.note}
                 maxLength={120}
-                placeholder="例如 客厅净宽"
+                placeholder={t("例如 客厅净宽")}
                 onBlur={(event) => {
                   if (event.target.value !== selectedMeasurement.note)
                     change({
@@ -2086,22 +2125,25 @@ export default function App() {
             </div>
           )}
           <div className="inspector-footer">
-            <b>{data.measurements.length}</b> 条测量<span>整份图纸</span>
+            <b>{t`${data.measurements.length} 条测量`}</b>
+            <span>{t("整份图纸")}</span>
           </div>
         </aside>
       </main>
       <footer className="statusbar">
         <span>
           <span className="status-dot" />
-          {busy ||
-            (document && !rendered ? "正在渲染图纸" : autosave || "就绪")}
+          {t(
+            busy ||
+              (document && !rendered ? "正在渲染图纸" : autosave || "就绪"),
+          )}
         </span>
         {document && (
           <div className="page-navigation">
             <button
               onClick={() => navigate(page - 1)}
               disabled={page <= 1}
-              aria-label="上一页"
+              aria-label={t("上一页")}
             >
               <ChevronLeft size={14} />
             </button>
@@ -2111,7 +2153,7 @@ export default function App() {
             <button
               onClick={() => navigate(page + 1)}
               disabled={page >= document.pdf.numPages}
-              aria-label="下一页"
+              aria-label={t("下一页")}
             >
               <ChevronRight size={14} />
             </button>
@@ -2122,7 +2164,7 @@ export default function App() {
             ? `${(document.bytes.length / 1048576).toFixed(1)} MB`
             : "mm / inch / feet"}
           <span className="small-divider" />
-          离线工作台
+          {t("离线工作台")}
         </span>
       </footer>
       {notice && (
@@ -2132,7 +2174,7 @@ export default function App() {
         >
           {notice.error ? <HelpCircle size={17} /> : <Check size={17} />}
           <span>{notice.text}</span>
-          <button aria-label="关闭提示" onClick={() => setNotice(null)}>
+          <button aria-label={t("关闭提示")} onClick={() => setNotice(null)}>
             <X size={15} />
           </button>
         </div>
@@ -2153,15 +2195,18 @@ export default function App() {
               <button
                 type="button"
                 className="icon-button"
-                aria-label="关闭校准"
+                aria-label={t("关闭校准")}
                 onClick={() => setCalibrationPoints(null)}
               >
                 <X size={18} />
               </button>
             </div>
-            <h2 id="calibration-title">这段距离的实际尺寸是多少？</h2>
-            <p>按图纸上已有的尺寸标注填写，建立第 {page} 页的测量比例。</p>
-            <label htmlFor="calibration-value">已知尺寸</label>
+            <h2 id="calibration-title">{t("这段距离的实际尺寸是多少？")}</h2>
+            <p>
+              {t("按图纸上已有的尺寸标注填写，建立第")}
+              {page} {t("页的测量比例。")}
+            </p>
+            <label htmlFor="calibration-value">{t("已知尺寸")}</label>
             <div className="calibration-inputs">
               <input
                 autoFocus
@@ -2172,12 +2217,12 @@ export default function App() {
                   setCalibrationError("");
                 }}
                 placeholder={
-                  calibrationUnit === "ft-in" ? `12' 6 1/2"` : "例如 6000"
+                  calibrationUnit === "ft-in" ? `12' 6 1/2"` : t("例如 6000")
                 }
                 autoComplete="off"
               />
               <select
-                aria-label="校准单位"
+                aria-label={t("校准单位")}
                 value={calibrationUnit}
                 onChange={(event) =>
                   setCalibrationUnit(event.target.value as Unit)
@@ -2185,15 +2230,15 @@ export default function App() {
               >
                 {Object.entries(unitLabels).map(([key, label]) => (
                   <option key={key} value={key}>
-                    {label}
+                    {t(label)}
                   </option>
                 ))}
               </select>
             </div>
             <small>
               {calibrationUnit === "ft-in"
-                ? `支持 12' 6 1/2"，只填数字时按英尺解释。`
-                : "支持整数、小数和分数，例如 3 1/2。"}
+                ? t("支持 12' 6 1/2\"，只填数字时按英尺解释。")
+                : t("支持整数、小数和分数，例如 3 1/2。")}
             </small>
             {calibrationError && (
               <p className="form-error" role="alert">
@@ -2202,16 +2247,17 @@ export default function App() {
             )}
             {scale && (
               <p className="calibration-warning">
-                本页已有 {pageMeasurements.length}{" "}
-                条测量，确认后会按新比例重新计算。
+                {t("本页已有")}
+                {pageMeasurements.length}{" "}
+                {t("条测量，确认后会按新比例重新计算。")}
               </p>
             )}
             <div className="modal-actions">
               <button type="button" onClick={() => setCalibrationPoints(null)}>
-                取消
+                {t("取消")}
               </button>
               <button className="primary" type="submit">
-                确认校准
+                {t("确认校准")}
                 <Check size={16} />
               </button>
             </div>

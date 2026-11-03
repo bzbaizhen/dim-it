@@ -1489,3 +1489,33 @@ kbd {
     transition: none !important;
   }
 }
+
+.language-select {
+  width: 110px;
+  padding: 6px 8px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.topbar > .language-select {
+  background: #304e64;
+  color: #fff;
+  border-color: #527087;
+  margin-right: 12px;
+}
+.quick-start-header > .language-select {
+  margin-left: auto;
+}
+html[lang="en"] .toolbar button {
+  font-size: 12px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+html[lang="en"] .guide-topics > button {
+  height: auto;
+  min-height: 42px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+html[lang="en"] .guide-content-heading h3 {
+  font-size: 18px;
+}

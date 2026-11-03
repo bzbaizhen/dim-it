@@ -1,3 +1,4 @@
+import { t, useLanguage, setLanguage } from "./i18n.ts";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   Check,
@@ -89,7 +90,7 @@ function Illustration({ step }: { step: number }) {
       className="guide-art"
       viewBox="0 0 420 150"
       role="img"
-      aria-label={`${steps[step].title}操作示意`}
+      aria-label={t`${t(steps[step].title)}操作示意`}
     >
       <rect
         x="24"
@@ -126,7 +127,7 @@ function Illustration({ step }: { step: number }) {
             PDF
           </text>
           <text x="280" y="101" className="guide-caption">
-            多页图纸
+            {t("多页图纸")}
           </text>
         </g>
       )}
@@ -142,10 +143,10 @@ function Illustration({ step }: { step: number }) {
             6,000 mm
           </text>
           <text x="100" y="128" textAnchor="middle" className="guide-caption">
-            第一点
+            {t("第一点")}
           </text>
           <text x="320" y="128" textAnchor="middle" className="guide-caption">
-            第二点
+            {t("第二点")}
           </text>
         </g>
       )}
@@ -171,7 +172,7 @@ function Illustration({ step }: { step: number }) {
             2,400 mm
           </text>
           <text x="280" y="78" textAnchor="middle" className="guide-caption">
-            尺寸标注
+            {t("尺寸标注")}
           </text>
         </g>
       )}
@@ -190,7 +191,7 @@ function Illustration({ step }: { step: number }) {
             className="guide-snap-shape"
           />
           <text x="80" y="128" textAnchor="middle" className="guide-green-text">
-            端点
+            {t("端点")}
           </text>
           <text
             x="210"
@@ -198,7 +199,7 @@ function Illustration({ step }: { step: number }) {
             textAnchor="middle"
             className="guide-green-text"
           >
-            中点
+            {t("中点")}
           </text>
           <text
             x="315"
@@ -206,7 +207,7 @@ function Illustration({ step }: { step: number }) {
             textAnchor="middle"
             className="guide-green-text"
           >
-            交点
+            {t("交点")}
           </text>
         </g>
       )}
@@ -218,7 +219,7 @@ function Illustration({ step }: { step: number }) {
           <circle cx="310" cy="37" r="5" className="guide-track-point" />
           <path d="M310 101 l7 7 -7 7 -7 -7 Z" className="guide-track-point" />
           <text x="100" y="132" textAnchor="middle" className="guide-caption">
-            起点
+            {t("起点")}
           </text>
           <text
             x="310"
@@ -226,7 +227,7 @@ function Illustration({ step }: { step: number }) {
             textAnchor="middle"
             className="guide-purple-text"
           >
-            参考点
+            {t("参考点")}
           </text>
           <text
             x="310"
@@ -234,16 +235,16 @@ function Illustration({ step }: { step: number }) {
             textAnchor="middle"
             className="guide-purple-text"
           >
-            正交落点
+            {t("正交落点")}
           </text>
         </g>
       )}
       {step === 5 && (
         <g>
           {[
-            [".planmeasure", "继续编辑"],
-            [".pdf", "查看与打印"],
-            [".csv", "尺寸与备注"],
+            [".planmeasure", t("继续编辑")],
+            [".pdf", t("查看与打印")],
+            [".csv", t("尺寸与备注")],
           ].map(([extension, label], index) => (
             <g key={extension} transform={`translate(${55 + index * 107},26)`}>
               <rect width="96" height="98" rx="5" className="guide-file" />
@@ -258,7 +259,7 @@ function Illustration({ step }: { step: number }) {
                 {extension}
               </text>
               <text x="48" y="75" textAnchor="middle" className="guide-caption">
-                {label}
+                {t(label)}
               </text>
             </g>
           ))}
@@ -269,6 +270,7 @@ function Illustration({ step }: { step: number }) {
 }
 
 export default function QuickStart({ onClose }: { onClose: () => void }) {
+  const language = useLanguage();
   const [step, setStep] = useState(0);
   const [hideOnLaunch, setHideOnLaunch] = useState(
     () => !shouldShowQuickStart(),
@@ -302,7 +304,8 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
     }
     if (
       (event.key === "ArrowRight" || event.key === "ArrowLeft") &&
-      !(event.target instanceof HTMLInputElement)
+      !(event.target instanceof HTMLInputElement) &&
+      !(event.target instanceof HTMLSelectElement)
     ) {
       event.preventDefault();
       setStep((value) =>
@@ -317,7 +320,7 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
     }
     if (event.key === "Tab") {
       const elements = dialog.current?.querySelectorAll<HTMLElement>(
-        "button:not(:disabled), input",
+        "button:not(:disabled), input, select",
       );
       const first = elements?.[0],
         last = elements?.[elements.length - 1];
@@ -344,17 +347,31 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
       >
         <header className="quick-start-header">
           <div>
-            <h2 id="quick-start-title">快速上手</h2>
-            <p id="quick-start-caption">6 步了解核心功能，随时可以跳过。</p>
+            <h2 id="quick-start-title">{t("快速上手")}</h2>
+            <p id="quick-start-caption">
+              {t("6 步了解核心功能，随时可以跳过。")}
+            </p>
           </div>
+          <select
+            className="language-select"
+            aria-label="Language / 语言"
+            value={language}
+            onChange={(event) => {
+              if (!setLanguage(event.target.value as "zh" | "en"))
+                setPreferenceError(true);
+            }}
+          >
+            <option value="zh">简体中文</option>
+            <option value="en">English</option>
+          </select>
           <button className="guide-skip" onClick={onClose}>
-            跳过说明
+            {t("跳过说明")}
           </button>
         </header>
         <div
           className="guide-progress"
           role="progressbar"
-          aria-label="使用说明进度"
+          aria-label={t("使用说明进度")}
           aria-valuemin={1}
           aria-valuemax={steps.length}
           aria-valuenow={step + 1}
@@ -362,17 +379,17 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
           <span style={{ width: `${((step + 1) / steps.length) * 100}%` }} />
         </div>
         <div ref={body} className="quick-start-body">
-          <nav className="guide-topics" aria-label="使用说明章节">
+          <nav className="guide-topics" aria-label={t("使用说明章节")}>
             {steps.map((item, index) => (
               <button
-                key={item.title}
-                aria-label={`第 ${index + 1} 步 ${item.title}`}
+                key={t(item.title)}
+                aria-label={t`第 ${index + 1} 步 ${t(item.title)}`}
                 aria-current={index === step ? "step" : undefined}
                 className={step === index ? "active" : ""}
                 onClick={() => setStep(index)}
               >
                 <item.icon size={16} />
-                <span>{item.title}</span>
+                <span>{t(item.title)}</span>
                 {index < step && <Check size={12} />}
               </button>
             ))}
@@ -385,7 +402,7 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
             aria-atomic="true"
           >
             <div className="guide-content-heading">
-              <h3>{steps[step].title}</h3>
+              <h3>{t(steps[step].title)}</h3>
               <small>
                 {step + 1} / {steps.length}
               </small>
@@ -393,12 +410,12 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
             <Illustration step={step} />
             <ul>
               {steps[step].items.map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item}>{t(item)}</li>
               ))}
             </ul>
             <div className="guide-shortcuts">
               {steps[step].keys.map((key) => (
-                <kbd key={key}>{key}</kbd>
+                <kbd key={key}>{t(key)}</kbd>
               ))}
             </div>
           </div>
@@ -421,7 +438,7 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
                 }
               }}
             />
-            下次不再显示
+            {t("下次不再显示")}
           </label>
           <div className="guide-actions">
             <button
@@ -429,7 +446,7 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
               disabled={step === 0}
             >
               <ChevronLeft size={15} />
-              上一步
+              {t("上一步")}
             </button>
             <button
               ref={primary}
@@ -441,12 +458,12 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
             >
               {step === steps.length - 1 ? (
                 <>
-                  开始使用
+                  {t("开始使用")}
                   <Check size={15} />
                 </>
               ) : (
                 <>
-                  下一步
+                  {t("下一步")}
                   <ChevronRight size={15} />
                 </>
               )}
@@ -455,7 +472,7 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
         </footer>
         {preferenceError && (
           <p className="guide-preference-error" role="alert">
-            启动偏好保存失败，可以跳过说明后继续使用。
+            {t("启动偏好保存失败，可以跳过说明后继续使用。")}
           </p>
         )}
       </section>

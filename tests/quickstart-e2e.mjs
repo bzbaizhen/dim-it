@@ -77,7 +77,8 @@ try {
   await page.keyboard.press("Tab");
   assert.equal(
     await page
-      .getByRole("button", { name: "跳过说明", exact: true })
+      .getByRole("dialog")
+      .getByLabel("Language / 语言")
       .evaluate((element) => element === document.activeElement),
     true,
   );
@@ -143,10 +144,7 @@ try {
   await page.getByRole("dialog", { name: "快速上手" }).waitFor();
   await step(1);
   await saved();
-  assert.match(
-    await page.locator(".document-title").innerText(),
-    /DimIt-Demo/,
-  );
+  assert.match(await page.locator(".document-title").innerText(), /DimIt-Demo/);
   await page.getByRole("button", { name: "跳过说明", exact: true }).click();
   await page.getByRole("button", { name: "校准比例", exact: true }).click();
   await pick(160, 550);
@@ -194,10 +192,7 @@ try {
   await launch();
   await saved();
   assert.equal(await page.getByRole("dialog", { name: "快速上手" }).count(), 0);
-  assert.match(
-    await page.locator(".document-title").innerText(),
-    /DimIt-Demo/,
-  );
+  assert.match(await page.locator(".document-title").innerText(), /DimIt-Demo/);
   await page.getByRole("button", { name: "使用帮助", exact: true }).click();
   await step(1);
   console.log(
@@ -223,10 +218,7 @@ try {
   assert.equal(await page.getByLabel("下次不再显示").isChecked(), false);
   await page.getByRole("button", { name: "跳过说明", exact: true }).click();
   await saved();
-  assert.match(
-    await page.locator(".document-title").innerText(),
-    /DimIt-Demo/,
-  );
+  assert.match(await page.locator(".document-title").innerText(), /DimIt-Demo/);
   assert.deepEqual(errors, []);
   console.log(
     "PASS unavailable preference storage falls back to a skippable guide and leaves the drawing usable",

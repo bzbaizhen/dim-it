@@ -15,7 +15,11 @@
 | Windows 10 / 11 x64 | 下载 `.exe`，运行安装向导，可选择安装位置      |
 | macOS Apple Silicon | 下载 `.dmg`，打开后将 Dim It 拖入 Applications |
 
-当前版本为 **0.4.0**。安装包尚未签名，系统可能显示未知发布者或安全提示。请核对下载来源。macOS 已实际运行验证，Windows 已交叉构建，实机验收待完成。当前 macOS 包为 ARM64。
+当前版本为 **0.4.1**。安装包尚未签名，系统可能显示未知发布者或安全提示。请核对下载来源。macOS 已实际运行验证，Windows 已交叉构建，实机验收待完成。当前 macOS 包为 ARM64。
+
+## 界面语言
+
+在窗口顶部或启动说明右上角选择 **简体中文 / English**，界面立即切换，并记住下次启动的偏好。默认使用中文。语言切换覆盖工具栏、测量设置、校准弹窗、捕捉与智慧轨迹提示、六步说明和原生应用菜单。图纸内容、文件名、用户备注与测量数值保留原值。
 
 ## 核心功能
 
@@ -99,10 +103,10 @@ npm run package:mac
 npm run package:win
 ```
 
-测试入口自动生成纯几何 PDF 与空白加密校验样本，生成文件被 Git 忽略。UI 测试使用隔离临时用户数据目录，输出位于被忽略的 `test-results/`。打包输出在 `release/0.4.0/`。打包 macOS 需要 Mac 环境。
+测试入口自动生成纯几何 PDF 与空白加密校验样本，生成文件被 Git 忽略。UI 测试使用隔离临时用户数据目录，输出位于被忽略的 `test-results/`。打包输出在 `release/0.4.1/`。打包 macOS 需要 Mac 环境。
 
 ## 实现与当前状态
 
 React / TypeScript、PDF.js、pdf-lib 与 Electron。选点保存为 PDF 原生坐标，比例以 mm / PDF 坐标单位表示，显示与导出时换算单位。兼容早期 PlanMeasure 的 `.planmeasure` 项目与本机自动恢复数据。
 
-0.4.0 已在 Apple Silicon Mac 上通过生产构建、11 项核心测试及 Electron 工作流验证，覆盖校准、单位、保存重开、导出、捕捉、智慧轨迹、启动引导与异常恢复。Windows 实机验收是当前开放项。源码默认分支为 `main`，发布制品以对应 Release 为准。
+0.4.1 已在 Apple Silicon Mac 上通过生产构建、11 项核心测试及 Electron 工作流验证，覆盖校准、单位、保存重开、导出、捕捉、智慧轨迹、启动引导与异常恢复。Windows 实机验收是当前开放项。源码默认分支为 `main`，发布制品以对应 Release 为准。

@@ -4,7 +4,7 @@ English · [简体中文](README.md) · [Download the latest release](https://gi
 
 An offline desktop tool for measuring PDF drawings. Calibrate the drawing with two points of a known dimension, then measure other distances. Built for everyday architectural, interior and engineering drawing checks on Windows and macOS.
 
-![Dim It measurement workspace](docs/images/measurement.png)
+![Dim It measurement workspace](docs/images/measurement-en.png)
 
 ## Download and install
 
@@ -15,9 +15,9 @@ Get the installer from [GitHub Releases](https://github.com/bzbaizhen/dim-it/rel
 | Windows 10 / 11 x64 | Download the `.exe` and run the installation wizard |
 | macOS Apple Silicon | Open the `.dmg` and drag Dim It into Applications   |
 
-Current version is **0.4.0**. Installers are unsigned, so your operating system may show a publisher or security warning. Check the download source. macOS has been tested on actual hardware. Windows packages are cross-built and still require Windows hardware validation. The current macOS build is ARM64.
+Current version is **0.4.1**. Installers are unsigned, so your operating system may show a publisher or security warning. Check the download source. macOS has been tested on actual hardware. Windows packages are cross-built and still require Windows hardware validation. The current macOS build is ARM64.
 
-The application interface currently uses Simplified Chinese. This English guide describes the corresponding controls.
+Choose **English** in the language selector at the top of the window or in the startup guide. The interface switches immediately and remembers your choice. Chinese is the default. Toolbars, measurement settings, calibration dialogs, snap and SmartTrack hints, the six-step guide and native application menus support both languages. Drawing content, filenames, user notes and measurement values are preserved.
 
 ## Core features
 
@@ -33,9 +33,9 @@ The application interface currently uses Simplified Chinese. This English guide 
 ### Calibrate and measure
 
 1. Open a PDF and zoom into a known dimension.
-2. Click 「校准比例」, pick both ends, and enter a value such as `6000` mm, `3 1/2` inch or `8' 6"`.
-3. Click 「长度测量」 and pick the endpoints of another distance. Measurements appear in the list automatically.
-4. Use 「保存项目」 to save editable work, or 「导出」 for PDF and CSV output.
+2. Click Calibrate, pick both ends, and enter a value such as `6000` mm, `3 1/2` inch or `8' 6"`.
+3. Click Length and pick the endpoints of another distance. Measurements appear in the list automatically.
+4. Use Save project to save editable work, or Export for PDF and CSV output.
 
 The workspace screenshot above uses a generated demo with a 6,000 mm reference and a 12,000 mm measurement.
 
@@ -53,9 +53,9 @@ Pick a start point, hold Shift, then hover over a snap point for about 350 ms. U
 
 ### Quick start
 
-The six-step illustrated guide appears on launch by default. Click 「跳过说明」 or press Esc to skip. Select 「下次不再显示」 to remember your preference. Reopen it with 「使用帮助」 in the top-right corner.
+The six-step illustrated guide appears on launch by default. Click Skip guide or press Esc to skip. Select Don't show on launch to remember your preference. Reopen it with Help in the top-right corner.
 
-![Skippable startup guide](docs/images/quickstart.png)
+![Skippable startup guide](docs/images/quickstart-en.png)
 
 ## Keyboard shortcuts
 
@@ -101,10 +101,10 @@ npm run package:mac
 npm run package:win
 ```
 
-Test entry points generate synthetic geometric PDFs and a blank password test fixture. Generated fixtures are Git-ignored. UI tests use isolated temporary profiles and write to the ignored `test-results/` directory. Packages are written to `release/0.4.0/`. Building the macOS package requires macOS.
+Test entry points generate synthetic geometric PDFs and a blank password test fixture. Generated fixtures are Git-ignored. UI tests use isolated temporary profiles and write to the ignored `test-results/` directory. Packages are written to `release/0.4.1/`. Building the macOS package requires macOS.
 
 ## Implementation and status
 
 React / TypeScript, PDF.js, pdf-lib and Electron. Points use native PDF coordinates, calibration stores millimeters per PDF coordinate unit, and display/export convert units. Existing PlanMeasure `.planmeasure` projects and local recovery data remain compatible.
 
-Version 0.4.0 has passed a production build, 11 core tests and Electron workflow checks on Apple Silicon macOS, covering calibration, units, save/reopen, export, snapping, SmartTrack, quick start and failure recovery. Windows hardware validation remains open. The default source branch is `main`. Download binaries from the corresponding Release.
+Version 0.4.1 has passed a production build, 11 core tests and Electron workflow checks on Apple Silicon macOS, covering calibration, units, save/reopen, export, snapping, SmartTrack, quick start and failure recovery. Windows hardware validation remains open. The default source branch is `main`. Download binaries from the corresponding Release.

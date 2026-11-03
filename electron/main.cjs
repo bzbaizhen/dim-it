@@ -42,6 +42,14 @@ function createWindow() {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.loadFile(path.join(__dirname, "../dist/index.html"));
+  updateMenu("zh");
+}
+
+function updateMenu(language) {
+  const en = language === "en";
+  window.setTitle(
+    en ? "Dim It · PDF Drawing Workbench" : "Dim It · PDF 图纸工作台",
+  );
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       ...(process.platform === "darwin"
@@ -49,44 +57,44 @@ function createWindow() {
             {
               label: "Dim It",
               submenu: [
-                { role: "about" },
+                { role: "about", label: en ? "About Dim It" : "关于 Dim It" },
                 { type: "separator" },
-                { role: "quit" },
+                { role: "quit", label: en ? "Quit" : "退出" },
               ],
             },
           ]
         : []),
       {
-        label: "文件",
+        label: en ? "File" : "文件",
         submenu: [
           {
-            label: "打开 PDF / 项目",
+            label: en ? "Open PDF / project" : "打开 PDF / 项目",
             accelerator: "CmdOrCtrl+O",
             click: () => window.webContents.send("command", "open"),
           },
           {
-            label: "保存项目",
+            label: en ? "Save project" : "保存项目",
             accelerator: "CmdOrCtrl+S",
             click: () => window.webContents.send("command", "save"),
           },
           { type: "separator" },
-          { role: "close" },
+          { role: "close", label: en ? "Close window" : "关闭窗口" },
         ],
       },
       {
-        label: "编辑",
+        label: en ? "Edit" : "编辑",
         submenu: [
-          { role: "cut" },
-          { role: "copy" },
-          { role: "paste" },
-          { role: "selectAll" },
+          { role: "cut", label: en ? "Cut" : "剪切" },
+          { role: "copy", label: en ? "Copy" : "复制" },
+          { role: "paste", label: en ? "Paste" : "粘贴" },
+          { role: "selectAll", label: en ? "Select all" : "全选" },
         ],
       },
       {
-        label: "帮助",
+        label: en ? "Help" : "帮助",
         submenu: [
           {
-            label: "打开本地数据文件夹",
+            label: en ? "Open local data folder" : "打开本地数据文件夹",
             click: () => shell.openPath(app.getPath("userData")),
           },
         ],
@@ -94,6 +102,10 @@ function createWindow() {
     ]),
   );
 }
+
+ipcMain.on("set-language", (_event, language) => {
+  if (language === "zh" || language === "en") updateMenu(language);
+});
 
 ipcMain.handle("open-file", async () => {
   const result = await dialog.showOpenDialog(window, {

@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 export type Unit = "mm" | "in" | "ft" | "ft-in";
 export type Point = { x: number; y: number };
 export type Calibration = {
@@ -36,12 +37,14 @@ function positiveNumber(value: string): number {
   const match = value
     .trim()
     .match(/^(?:(\d+)\s+)?(\d+)\s*\/\s*(\d+)$|^(\d+(?:\.\d*)?|\.\d+)$/);
-  if (!match) throw new Error("请输入数字、小数或分数，例如 1200、3.5、3 1/2");
+  if (!match)
+    throw new Error(t("请输入数字、小数或分数，例如 1200、3.5、3 1/2"));
   const number =
     match[4] !== undefined
       ? Number(match[4])
       : Number(match[1] || 0) + Number(match[2]) / Number(match[3]);
-  if (!Number.isFinite(number)) throw new Error("请输入有效尺寸，分母不能为 0");
+  if (!Number.isFinite(number))
+    throw new Error(t("请输入有效尺寸，分母不能为 0"));
   return number;
 }
 
@@ -51,7 +54,7 @@ export function parseDistance(input: string, unit: Unit): number {
   if (unit === "ft-in" && /['"]/.test(text)) {
     const match = text.match(/^(?:(.*?)'\s*-?\s*)?(?:(.*?)")?$/);
     if (!match || (!match[1] && !match[2]))
-      throw new Error("英尺英寸格式例如 12' 6 1/2\"");
+      throw new Error(t("英尺英寸格式例如 12' 6 1/2\""));
     const feet = match[1] ? positiveNumber(match[1]) : 0;
     const inches = match[2] ? positiveNumber(match[2]) : 0;
     value = feet * 304.8 + inches * 25.4;
@@ -61,7 +64,7 @@ export function parseDistance(input: string, unit: Unit): number {
       { mm: 1, in: 25.4, ft: 304.8, "ft-in": 304.8 }[unit];
   }
   if (!Number.isFinite(value) || value <= 0 || value > 1e12)
-    throw new Error("校准尺寸必须大于 0，且小于 1 万亿 mm");
+    throw new Error(t("校准尺寸必须大于 0，且小于 1 万亿 mm"));
   return value;
 }
 
@@ -94,7 +97,7 @@ export function makeCalibration(
     !Number.isFinite(millimeters) ||
     millimeters <= 0
   )
-    throw new Error("校准的两点必须分开，实际尺寸必须大于 0");
+    throw new Error(t("校准的两点必须分开，实际尺寸必须大于 0"));
   return { a, b, millimeters, mmPerPoint: millimeters / length };
 }
 
@@ -120,7 +123,8 @@ function isPoint(value: unknown): value is Point {
 }
 
 export function validateData(value: unknown, pageCount: number): ProjectData {
-  if (!value || typeof value !== "object") throw new Error("项目数据格式无效");
+  if (!value || typeof value !== "object")
+    throw new Error(t("项目数据格式无效"));
   const data = value as ProjectData;
   if (
     !["mm", "in", "ft", "ft-in"].includes(data.unit) ||
@@ -129,7 +133,7 @@ export function validateData(value: unknown, pageCount: number): ProjectData {
     !data.rotations ||
     !Array.isArray(data.measurements)
   )
-    throw new Error("项目设置格式无效");
+    throw new Error(t("项目设置格式无效"));
   const pageValid = (page: number) =>
     Number.isInteger(page) && page >= 1 && page <= pageCount;
   const scales: ProjectData["scales"] = {};
@@ -140,12 +144,12 @@ export function validateData(value: unknown, pageCount: number): ProjectData {
       !isPoint(scale.a) ||
       !isPoint(scale.b)
     )
-      throw new Error("项目校准数据无效");
+      throw new Error(t("项目校准数据无效"));
     scales[page] = makeCalibration(scale.a, scale.b, scale.millimeters);
   }
   const ids = new Set<string>();
   if (data.measurements.length > 100000)
-    throw new Error("项目标注数量超出限制");
+    throw new Error(t("项目标注数量超出限制"));
   for (const measurement of data.measurements) {
     if (
       !measurement ||
@@ -159,12 +163,12 @@ export function validateData(value: unknown, pageCount: number): ProjectData {
       !/^#[0-9a-f]{6}$/i.test(measurement.color) ||
       !scales[measurement.page]
     )
-      throw new Error("项目标注数据无效");
+      throw new Error(t("项目标注数据无效"));
     ids.add(measurement.id);
   }
   for (const [page, rotation] of Object.entries(data.rotations)) {
     if (!pageValid(Number(page)) || ![0, 90, 180, 270].includes(rotation))
-      throw new Error("项目旋转设置无效");
+      throw new Error(t("项目旋转设置无效"));
   }
   return { ...data, scales };
 }
