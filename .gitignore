@@ -1,0 +1,12 @@
+node_modules/
+dist/
+release/
+test-results/
+*.tsbuildinfo
+.DS_Store
+public/pdf-assets/
+tests/fixtures/
+*.planmeasure
+.env
+.env.*
+*.log
