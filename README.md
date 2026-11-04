@@ -17,7 +17,7 @@
 | Windows 10 / 11 x64 | 下载 `.exe`，运行安装向导，可选择安装位置      |
 | macOS Apple Silicon | 下载 `.dmg`，打开后将 Dim It 拖入 Applications |
 
-当前本地开发版本为 **0.4.3**，已发布安装包以 Releases 为准。安装包尚未签名，系统可能显示未知发布者或安全提示。请核对下载来源。macOS 已实际运行验证，Windows 已交叉构建，实机验收待完成。当前 macOS 包为 ARM64。
+当前版本为 **0.4.3**，已发布安装包以 Releases 为准。安装包尚未签名，系统可能显示未知发布者或安全提示。请核对下载来源。macOS 已实际运行验证，Windows 已交叉构建，实机验收待完成。当前 macOS 包为 ARM64。
 
 ## 界面语言
 
@@ -149,4 +149,4 @@ npm run package:win
 
 React / TypeScript、PDF.js、pdf-lib 与 Electron。选点保存为 PDF 原生坐标，比例以 mm / PDF 坐标单位表示，显示与导出时换算单位。兼容早期 PlanMeasure 的 `.planmeasure` 项目与本机自动恢复数据。
 
-0.4.3 为本地交付，已在 Apple Silicon Mac 通过生产构建、29 项单测、9 组 Electron 工作流回归及最终 Mac 应用包实跑。覆盖快捷键、区域填色、细线显示，以及既有测量、校准、保存重开、导出、捕捉、智慧轨迹和双语引导。两平台包内版本、源码资源一致性、客户图纸排除、DMG 完整性与 SHA-256 已核验。Windows 实机验收是当前开放项。源码默认分支为 `main`，发布制品以对应 Release 为准。
+0.4.3 已在 Apple Silicon Mac 通过生产构建、29 项单测、9 组 Electron 工作流回归及最终 Mac 应用包实跑。覆盖快捷键、区域填色、细线显示，以及既有测量、校准、保存重开、导出、捕捉、智慧轨迹和双语引导。两平台包内版本、源码资源一致性、客户图纸排除、DMG 完整性与 SHA-256 已核验。Windows 实机验收是当前开放项。源码默认分支为 `main`，发布制品以对应 Release 为准。
