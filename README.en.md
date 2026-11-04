@@ -2,164 +2,119 @@
 
 <img src="public/dim-it-logo.png" alt="Dim It D! logo" width="96" height="96" />
 
-English · [简体中文](README.md) · [Download the latest release](https://github.com/bzbaizhen/dim-it/releases/latest)
+**Offline PDF drawing measurement and annotation.** Open a drawing, calibrate it using a known dimension, then measure lines, curves and mark regions. Built for everyday architectural, interior and engineering drawing checks.
 
-An offline desktop tool for measuring PDF drawings. Calibrate the drawing with two points of a known dimension, then measure other distances. Built for everyday architectural, interior and engineering drawing checks on Windows and macOS.
+*Damn it. Dim it.*
+
+English · [简体中文](README.md) · [Download the latest release](https://github.com/bzbaizhen/dim-it/releases/latest) · [Detailed usage](docs/usage.en.md)
 
 ![Dim It measurement workspace](docs/images/measurement-en.png)
 
 ## Download and install
 
-Get the installer from [GitHub Releases](https://github.com/bzbaizhen/dim-it/releases).
+Choose the installer for your platform from Releases. The current version is **0.4.3**. [Download the latest release](https://github.com/bzbaizhen/dim-it/releases/latest)
 
-| Platform            | Installation                                        |
-| ------------------- | --------------------------------------------------- |
-| Windows 10 / 11 x64 | Download the `.exe` and run the installation wizard |
-| macOS Apple Silicon | Open the `.dmg` and drag Dim It into Applications   |
+| Platform | Installation | Signing status |
+| --- | --- | --- |
+| macOS Apple Silicon (ARM64) | Open the `.dmg` and drag Dim It into Applications | Developer ID signed and notarized by Apple |
+| Windows 10 / 11 x64 | Run the `.exe` wizard and choose an installation location | Unsigned, so Windows may show a security warning |
 
-The current version is **0.4.3**. Published installers are listed in Releases. The Mac installer is signed and notarized by Apple. The Windows installer is unsigned and may show a security warning. Check the download source. macOS has been tested on actual hardware. Windows packages are cross-built and still require Windows hardware validation. The current macOS build is ARM64.
+The Mac app has been run on Apple Silicon hardware. The Windows installer is cross-built and awaits Windows hardware validation. Each Release includes `SHA256SUMS.txt` for checking downloaded files.
 
-### Local signed Mac build
+## Start in a minute
 
-Install a `Developer ID Application` certificate with its private key in the local Keychain. Store notarization credentials using the interactive command below, which prompts for your Apple ID, Team ID and app-specific password.
+1. **Open a drawing.** Click Open or drag a PDF into the window. You can also try the built-in demo.
+2. **Calibrate.** Press **4**, pick both ends of a known dimension, and enter its actual length and unit, such as `6000` mm.
+3. **Measure.** Press **1** for a straight length, or **2** to pick an existing vector curve and measure its full path. Results appear in the list on the right.
+4. **Save and share.** Save a `.planmeasure` project for continued editing, or export an annotated PDF or dimension CSV.
 
-```sh
-xcrun notarytool store-credentials dim-it-notary
-npm run package:mac:signed
-```
-
-The signed ARM64 build is written to `release/<version>/mac-signed/`. It enables Hardened Runtime, signs and notarizes the app and DMG, staples tickets, checks Gatekeeper acceptance and writes SHA-256 checksums. Missing certificates or invalid notarization credentials stop the build. Set `APPLE_KEYCHAIN_PROFILE` to use another profile and `CSC_NAME` to select among multiple signing identities. Private keys and notarization credentials stay in the local Keychain. Releases indicate which artifacts have actually been published.
-
-On 2026-11-05, the local 0.4.3 ARM64 app and DMG passed signing, notarization and ticket validation. Gatekeeper reports `Notarized Developer ID`. The signed app passed the bilingual, calibration, measurement and persistence workflow. The signed installer is available on GitHub Releases.
-
-## Interface language
-
-Choose **English** in the language selector at the top of the window or in the startup guide. The interface switches immediately and remembers your choice. Chinese is the default. Toolbars, measurement settings, calibration dialogs, snap and SmartTrack hints, the six-step guide and native application menus support both languages. Drawing content, filenames, user notes and measurement values are preserved.
+Press **3** to start a region fill directly. Switch **简体中文 / English** at the top of the window. Your language preference is saved automatically. The illustrated startup guide can be skipped and reopened through Help in the top-right corner.
 
 ## Core features
 
-- **Open and navigate** local PDFs and `.planmeasure` projects. Drag and drop, page selection, pan, zoom and rotation. Files are processed locally.
-- **Two-point calibration** from a known dimension and unit. Each page has its own scale. Recalibration updates measurements on that page.
-- **Length measurements and annotations** with continuous two-point picking, notes, colors, deletion, undo and redo.
-- **Arc and curve lengths** from existing vector paths. After calibration, click Curve length or press 2, hover to preview the full highlighted path, then click to record. Closed curves measure their full perimeter.
-- **Region fills** with drag-to-draw rectangles and click-to-draw polygons, 25% default opacity, colors, notes, vertex editing and undo. Calibration is optional.
-- **Thin lines** with Tab to show vector stroke centerlines at a uniform thin width.
-- **Custom shortcuts** with grouped reference, primary and alternate bindings, conflict detection and local preferences.
-- **Metric and imperial units** including mm, inches, feet and fractional feet/inches to the nearest 1/16 inch.
-- **Object snapping** to vector line endpoints, midpoints and finite-segment intersections, with green markers and point-type labels.
-- **Shift SmartTrack** for horizontal or vertical measurement alignment using nearby reference points and purple tracking guides.
-- **Save and export** editable projects containing the original PDF, scales and annotations. Export annotated PDFs or CSV lists with dimensions, millimeter values and notes.
-- **Skippable quick start** with six illustrated steps, a launch preference and a help entry for reopening the guide.
+| Feature | What you can do |
+| --- | --- |
+| Length measurement | Measure between two points, pick whole vector arcs and curves, or measure a closed curve's perimeter |
+| Calibration and units | Calibrate each page independently and use mm, inches, feet or fractional feet/inches |
+| Snapping and alignment | Highlight endpoints, midpoints and intersections, with Shift orthogonal constraints and SmartTrack guides |
+| Region fills | Drag rectangles or click polygon vertices, then edit color, opacity, notes and vertices |
+| Drawing navigation | Change pages, pan, zoom, rotate and toggle uniform thin lines with Tab |
+| Annotation editing | Add notes, change colors, select, delete, undo and redo |
+| Faster operation | Customize shortcuts and see current bindings in button tooltips and native menus |
 
-### Calibrate and measure
+### Measure vector curves
 
-1. Open a PDF and zoom into a known dimension.
-2. Click Calibrate, pick both ends, and enter a value such as `6000` mm, `3 1/2` inch or `8' 6"`.
-3. Click Length and pick the endpoints of another distance. Measurements appear in the list automatically.
-4. Use Save project to save editable work, or Export for PDF and CSV output.
-
-The workspace screenshot above uses a generated demo with a 6,000 mm reference and a 12,000 mm measurement.
-
-### Arc and curve length
-
-Choose Curve length, hover over an existing vector arc or curve to preview its full path and length, then click to record it. Consecutive Bézier segments are measured together. Straight lines, disconnected subpaths and PDF drawing-object boundaries end the chain. Closed curves measure their full perimeter. Zoom and rotation preserve the measured dimension.
-
-Lengths follow the actual PDF path using adaptive numerical subdivision. Scanned images and curves already converted into straight polylines cannot be detected automatically. Picking selects the whole curve chain.
+After calibration, press **2**, hover to preview the highlighted curve, then click to record its full length.
 
 ![Whole-path curve measurement](docs/images/curve-length.png)
 
-Curve annotations support notes, colors, undo, recalibration and PDF / CSV export. Projects containing curves use v2 and require version 0.4.2 or later. Version 0.4.3 continues to read v1 and v2 projects.
+### Snapping and SmartTrack
 
-### Highlighted snapping
-
-Endpoints use a green square, midpoints a triangle and intersections a cross. Clicking uses the highlighted point's exact PDF coordinates. Press S to toggle snapping or hold Alt for temporary free picking.
-
-![Midpoint snapping](docs/images/snapping.png)
-
-### Shift SmartTrack
-
-Pick a start point, hold Shift, then hover over a snap point for about 350 ms. Up to four recent reference points are retained. Purple dashed guides and a diamond indicate the orthogonal target. Click to confirm. Releasing Shift hides the guides temporarily, Esc cancels the current operation, and Alt permits free picking along the orthogonal direction.
+Snap points are highlighted in green. Hold **Shift** for horizontal or vertical constraints, then hover over nearby snap points to acquire SmartTrack references and align along purple guides.
 
 ![Orthogonal SmartTrack](docs/images/smarttrack.png)
 
-### Quick start
+### Rectangle and polygon fills
 
-The six-step illustrated guide appears on launch by default. Click Skip guide or press Esc to skip. Select Don't show on launch to remember your preference. Reopen it with Help in the top-right corner.
-
-![Skippable startup guide](docs/images/quickstart-en.png)
-
-### Region fills and editing
-
-Press **3** to fill a region. With an empty draft, hold the left mouse button and move more than 5 screen pixels to preview a rectangle, then release to finish. A click begins a polygon. Click more vertices, then close with Enter, a double-click, or a click on the first vertex after at least three valid vertices. Dragging within an active polygon adds a vertex. Backspace removes the last point. Escape cancels the draft, then returns to Select on the next press.
+Press **3**, then drag a rectangle or click polygon vertices. Default opacity is 25%. Select a completed region to edit its style, note or vertices.
 
 ![Rectangle and polygon fills](docs/images/region-fill-en.png)
 
-Use the palette and opacity control for new regions. Select a region to edit its color, opacity, note or vertices. Rectangle edits fix the opposite corner and retain right angles. Zero-area and self-intersecting edits restore the original shape. Clicking overlapping fills selects the topmost region. The list also selects underlying regions. Dimensions render above fills. Drawing, a vertex drag and an opacity adjustment each create one undo step.
-
-Polygons support snapping, Shift orthogonal constraints and SmartTrack. Middle-mouse pan, Space-drag and zoom preserve drafts. Page changes and tool switches end unfinished drafts. Finish or cancel a draft before saving/exporting. PDF export includes Multiply-blended fills. CSV continues to list lengths. Projects containing regions use **v3 and require version 0.4.3 or later**.
-
 ### Tab thin-line display
 
-Press **Tab** on the canvas or click Thin lines to toggle between original and uniform thin stroke widths, including while calibrating, measuring, selecting or drawing a region. Vector paths retain their original centerlines and snap coordinates through zoom and rotation. Raster images, filled shapes and ordinary filled text retain their appearance. Stroked or outlined text may also appear thinner. PDF exports retain original drawing widths. Tab within fields and dialogs moves focus.
+Press **Tab** on the canvas to reveal vector stroke centerlines and identify intersections. You can toggle it while calibrating, measuring or drawing.
 
 ![Thin-line display](docs/images/thin-lines-en.png)
 
-## Shortcut reference and settings
+See the guide for detailed picking, closing, vertex editing and shortcut settings. [Detailed usage](docs/usage.en.md)
 
-`Mod` means Command on Mac and Ctrl on Windows. Use the keyboard icon or **Mod+, / F1** to open the same grouped settings panel.
+## Shortcuts
 
-| Action                              | Default                                     |
-| ----------------------------------- | ------------------------------------------- |
-| Line / Curve / Fill / Calibrate     | 1 / 2 / 3 / 4                               |
-| Previous / Next page                | A / D, or PageUp / PageDown                 |
-| Fit page / 100%                     | F / G                                       |
-| Zoom out / In                       | Z / X, or − / +                             |
-| Rotate clockwise / Counterclockwise | R / Shift+R                                 |
-| Thin lines                          | Tab                                         |
-| Snap / Edit note / Delete           | S / E / Delete                              |
-| Undo / Redo                         | Mod+Z / Mod+Shift+Z, plus Ctrl+Y on Windows |
-| Open / Save project                 | Mod+O / Mod+S                               |
-| Export PDF / CSV                    | Mod+E / Mod+Shift+E                         |
-| Shortcut settings                   | Mod+, / F1                                  |
+`Mod` means Command on Mac and Ctrl on Windows. Press **Mod+, / F1** or click the keyboard icon to view and customize bindings.
 
-![Grouped shortcut settings](docs/images/shortcuts-en.png)
+| Action | Default |
+| --- | --- |
+| Line / Curve / Fill / Calibrate | 1 / 2 / 3 / 4 |
+| Previous / Next page | A / D, or PageUp / PageDown |
+| Fit page / 100% | F / G |
+| Zoom out / In | Z / X, or − / + |
+| Rotate clockwise / Counterclockwise | R / Shift+R |
+| Thin lines | Tab |
+| Snap / Edit note / Delete | S / E / Delete |
+| Undo / Redo | Mod+Z / Mod+Shift+Z, plus Ctrl+Y on Windows |
+| Open / Save project | Mod+O / Mod+S |
+| Export PDF / CSV | Mod+E / Mod+Shift+E |
+| Shortcut settings | Mod+, / F1 |
 
-Each action supports a primary and one alternate binding. Clear individual bindings or confirm a complete reset. Single keys and Mod/Shift combinations are supported. Conflicts identify the existing action. System/window and text-editing combinations are protected. Fields, selects and IME composition retain native editing. Only zoom, undo and redo repeat when held. Capture suspends workbench actions. Escape cancels capture. Closing settings resumes the current drawing. Preferences are stored locally, with a session-only warning if storage fails.
+Use the middle mouse button or **Space + drag** to pan temporarily, **Shift** for orthogonal constraints and SmartTrack, and **Alt** for temporary free picking. Tab in fields and dialogs moves focus.
 
-Select and Pan remain available through mouse controls. Middle-mouse or Space-drag pans temporarily. Shift enables orthogonal constraints and SmartTrack. Alt temporarily bypasses snapping. Pressing 1 or 2 on an uncalibrated page starts calibration and returns to the requested tool afterward. Text buttons show their current bindings and icon buttons show them on hover. Page navigation, view controls, export and settings entries update together. Native menus and the quick-start guide read the same configuration.
+## Saving and privacy
 
-## Data and measurement limits
+Drawing processing and project recovery happen locally. Measurement and annotation work offline.
 
-- One scale per page. Save separate projects for details with different scales on the same page. Scan distortion can affect measurements. Check against another known dimension.
-- Automatic snapping uses vector straight lines and straight contour edges. Scanned images support manual calibration and picking.
-- Local recovery retains the most recent work. Save a `.planmeasure` project before switching drawings.
-- Exported PDF dimensions are drawn lines and text. Use the project file for continued editing. Notes are included in project and CSV files.
-- Unlock encrypted PDFs in a reader before opening. Measurement tools support two-point lengths and whole vector-curve lengths.
-- The repository and installers contain no customer drawings, customer projects, real drawing screenshots or local work data. Documentation images use generated geometry and the built-in demo.
+| Format | Purpose | Contents |
+| --- | --- | --- |
+| `.planmeasure` | Save work for continued editing | Original PDF, page scales, measurements, fills and notes |
+| PDF | Share or print annotated results | Drawing with dimensions and fills drawn onto the pages |
+| CSV | Organize a dimension list | Lengths, millimeter values and notes |
 
-## Development
+Local recovery retains the most recent work. Save your project before switching drawings. Documentation screenshots use generated geometry and the built-in demo.
 
-Use Node.js 24+ and npm. Dependencies are pinned through `package-lock.json`.
+## Limits and common questions
 
-```bash
-npm ci
-npm run desktop
-```
+- **Can I measure a scanned drawing?** Yes, using manual calibration and picking. Automatic snapping and whole-curve detection depend on vector paths in the PDF.
+- **What if a page has several scales?** Each page stores one scale. Save separate projects for details at different scales. Scan stretching or perspective distortion affects results. Check against another known dimension.
+- **How do I keep editing an exported PDF?** Open the saved `.planmeasure` project in Dim It to adjust measurements and regions.
+- **Why can't I select a curve?** It may have been converted to an image or straight polylines. Continuous vector curve selection follows PDF path boundaries.
+- **Why does saving report an unfinished draft?** Close the region or press Esc to cancel its draft, then save.
+- **How do I open an encrypted PDF?** Unlock and save it in a reader before importing it into Dim It.
 
-Use `npm run dev` for browser development. Desktop mode provides native open and save dialogs.
+## Feedback and development
 
-```bash
-npm run build
-npm test
-npm run test:e2e
-npm run package:mac
-npm run package:win
-```
+When reporting an issue, include your OS, app version, reproduction steps and a sanitized example. [Report an issue](https://github.com/bzbaizhen/dim-it/issues)
 
-Test entry points generate synthetic geometric PDFs and a blank password test fixture. Generated fixtures are Git-ignored. UI tests use isolated temporary profiles and write to the ignored `test-results/` directory. Packages are written to `release/0.4.3/`. Building the macOS package requires macOS.
+- [Releases and change notes](https://github.com/bzbaizhen/dim-it/releases)
+- [Detailed usage](docs/usage.en.md)
+- [Local development, builds and signed releases](docs/development.en.md)
 
-## Implementation and status
-
-React / TypeScript, PDF.js, pdf-lib and Electron. Points use native PDF coordinates, calibration stores millimeters per PDF coordinate unit, and display/export convert units. Existing PlanMeasure `.planmeasure` projects and local recovery data remain compatible.
-
-Version 0.4.3 was validated on Apple Silicon Mac with a production build, 29 unit tests, nine Electron workflow suites and a smoke run of the final packaged Mac app. Coverage includes custom shortcuts, region fills, thin-line display, measurement, calibration, save/reopen, export, snapping, SmartTrack and bilingual onboarding. Both packages were checked for version, bundled resource consistency, customer drawing exclusion and SHA-256 integrity. The DMG structure was verified. Windows hardware validation remains open. The default source branch is `main`. Download binaries from the corresponding Release.
+The project's current license marker is `UNLICENSED`, as recorded in its configuration. Contact the maintainer through Issues for licensing inquiries. [Project configuration](package.json)
