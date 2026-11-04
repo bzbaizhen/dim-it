@@ -17,7 +17,7 @@ Get the installer from [GitHub Releases](https://github.com/bzbaizhen/dim-it/rel
 | Windows 10 / 11 x64 | Download the `.exe` and run the installation wizard |
 | macOS Apple Silicon | Open the `.dmg` and drag Dim It into Applications   |
 
-The current version is **0.4.3**. Published installers are listed in Releases. Installers are unsigned, so your operating system may show a publisher or security warning. Check the download source. macOS has been tested on actual hardware. Windows packages are cross-built and still require Windows hardware validation. The current macOS build is ARM64.
+The current version is **0.4.3**. Published installers are listed in Releases. The Mac installer is signed and notarized by Apple. The Windows installer is unsigned and may show a security warning. Check the download source. macOS has been tested on actual hardware. Windows packages are cross-built and still require Windows hardware validation. The current macOS build is ARM64.
 
 ### Local signed Mac build
 
@@ -30,7 +30,7 @@ npm run package:mac:signed
 
 The signed ARM64 build is written to `release/<version>/mac-signed/`. It enables Hardened Runtime, signs and notarizes the app and DMG, staples tickets, checks Gatekeeper acceptance and writes SHA-256 checksums. Missing certificates or invalid notarization credentials stop the build. Set `APPLE_KEYCHAIN_PROFILE` to use another profile and `CSC_NAME` to select among multiple signing identities. Private keys and notarization credentials stay in the local Keychain. Releases indicate which artifacts have actually been published.
 
-On 2026-11-05, the local 0.4.3 ARM64 app and DMG passed signing, notarization and ticket validation. Gatekeeper reports `Notarized Developer ID`. The signed app passed the bilingual, calibration, measurement and persistence workflow. Public distribution of the signed artifacts remains an open item.
+On 2026-11-05, the local 0.4.3 ARM64 app and DMG passed signing, notarization and ticket validation. Gatekeeper reports `Notarized Developer ID`. The signed app passed the bilingual, calibration, measurement and persistence workflow. The signed installer is available on GitHub Releases.
 
 ## Interface language
 

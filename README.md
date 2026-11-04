@@ -17,7 +17,7 @@
 | Windows 10 / 11 x64 | 下载 `.exe`，运行安装向导，可选择安装位置      |
 | macOS Apple Silicon | 下载 `.dmg`，打开后将 Dim It 拖入 Applications |
 
-当前版本为 **0.4.3**，已发布安装包以 Releases 为准。安装包尚未签名，系统可能显示未知发布者或安全提示。请核对下载来源。macOS 已实际运行验证，Windows 已交叉构建，实机验收待完成。当前 macOS 包为 ARM64。
+当前版本为 **0.4.3**，已发布安装包以 Releases 为准。Mac 安装包已签名并通过 Apple 公证。Windows 安装包尚未签名，系统可能显示安全提示。请核对下载来源。macOS 已实际运行验证，Windows 已交叉构建，实机验收待完成。当前 macOS 包为 ARM64。
 
 ### 本机 Mac 签名构建
 
@@ -30,7 +30,7 @@ npm run package:mac:signed
 
 签名构建沿用当前 ARM64 目标，输出到 `release/<版本>/mac-signed/`。流程包括 Hardened Runtime、应用和 DMG 签名、公证、票据附加、Gatekeeper 检查与 SHA-256。缺少证书或有效公证凭据时停止。可用 `APPLE_KEYCHAIN_PROFILE` 指定其他公证配置，多个签名身份可通过 `CSC_NAME` 选择。私钥与公证凭据保留在本机钥匙串，发布状态以 Releases 中的实际制品为准。
 
-2026-11-05 已完成本机 0.4.3 ARM64 应用与 DMG 签名、公证及票据验证，Gatekeeper 显示 `Notarized Developer ID`。已签名应用的双语、校准、测量与保存专项通过。签名制品的公开发布为后续开放项。
+2026-11-05 已完成本机 0.4.3 ARM64 应用与 DMG 签名、公证及票据验证，Gatekeeper 显示 `Notarized Developer ID`。已签名应用的双语、校准、测量与保存专项通过。签名制品可从 GitHub Releases 下载。
 
 ## 界面语言
 
