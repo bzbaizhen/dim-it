@@ -19,6 +19,21 @@ Get the installer from [GitHub Releases](https://github.com/bzbaizhen/dim-it/rel
 
 The current version is **0.4.3**. Published installers are listed in Releases. Installers are unsigned, so your operating system may show a publisher or security warning. Check the download source. macOS has been tested on actual hardware. Windows packages are cross-built and still require Windows hardware validation. The current macOS build is ARM64.
 
+### Local signed Mac build
+
+Install a `Developer ID Application` certificate with its private key in the local Keychain. Store notarization credentials using the interactive command below, which prompts for your Apple ID, Team ID and app-specific password.
+
+```sh
+xcrun notarytool store-credentials dim-it-notary
+npm run package:mac:signed
+```
+
+The signed ARM64 build is written to `release/<version>/mac-signed/`. It enables Hardened Runtime, signs and notarizes the app and DMG, staples tickets, checks Gatekeeper acceptance and writes SHA-256 checksums. Missing certificates or invalid notarization credentials stop the build. Set `APPLE_KEYCHAIN_PROFILE` to use another profile and `CSC_NAME` to select among multiple signing identities. Private keys and notarization credentials stay in the local Keychain. Releases indicate which artifacts have actually been published.
+
+On 2026-11-05, the local 0.4.3 ARM64 app and DMG passed signing, notarization and ticket validation. Gatekeeper reports `Notarized Developer ID`. The signed app passed the bilingual, calibration, measurement and persistence workflow. Public distribution of the signed artifacts remains an open item.
+
+## Interface language
+
 Choose **English** in the language selector at the top of the window or in the startup guide. The interface switches immediately and remembers your choice. Chinese is the default. Toolbars, measurement settings, calibration dialogs, snap and SmartTrack hints, the six-step guide and native application menus support both languages. Drawing content, filenames, user notes and measurement values are preserved.
 
 ## Core features

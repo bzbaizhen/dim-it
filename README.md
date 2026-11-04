@@ -19,6 +19,19 @@
 
 当前版本为 **0.4.3**，已发布安装包以 Releases 为准。安装包尚未签名，系统可能显示未知发布者或安全提示。请核对下载来源。macOS 已实际运行验证，Windows 已交叉构建，实机验收待完成。当前 macOS 包为 ARM64。
 
+### 本机 Mac 签名构建
+
+在本机钥匙串安装含私钥的 `Developer ID Application` 证书。使用以下命令交互式录入 Apple ID、Team ID 和 App 专用密码，公证凭据保存在钥匙串中。
+
+```sh
+xcrun notarytool store-credentials dim-it-notary
+npm run package:mac:signed
+```
+
+签名构建沿用当前 ARM64 目标，输出到 `release/<版本>/mac-signed/`。流程包括 Hardened Runtime、应用和 DMG 签名、公证、票据附加、Gatekeeper 检查与 SHA-256。缺少证书或有效公证凭据时停止。可用 `APPLE_KEYCHAIN_PROFILE` 指定其他公证配置，多个签名身份可通过 `CSC_NAME` 选择。私钥与公证凭据保留在本机钥匙串，发布状态以 Releases 中的实际制品为准。
+
+2026-11-05 已完成本机 0.4.3 ARM64 应用与 DMG 签名、公证及票据验证，Gatekeeper 显示 `Notarized Developer ID`。已签名应用的双语、校准、测量与保存专项通过。签名制品的公开发布为后续开放项。
+
 ## 界面语言
 
 在窗口顶部或启动说明右上角选择 **简体中文 / English**，界面立即切换，并记住下次启动的偏好。默认使用中文。语言切换覆盖工具栏、测量设置、校准弹窗、捕捉与智慧轨迹提示、六步说明和原生应用菜单。图纸内容、文件名、用户备注与测量数值保留原值。
