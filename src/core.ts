@@ -1,5 +1,7 @@
 import { pathLength } from "./curve.ts";
 import { t } from "./i18n.ts";
+import { isValidRegionGeometry, type RegionFill } from "./regions.ts";
+export type { RegionFill } from "./regions.ts";
 export type Unit = "mm" | "in" | "ft" | "ft-in";
 export type Point = { x: number; y: number };
 export type Calibration = {
@@ -20,6 +22,7 @@ export type Measurement = {
 export type ProjectData = {
   scales: Record<string, Calibration>;
   measurements: Measurement[];
+  regions: RegionFill[];
   unit: Unit;
   precision: number;
   rotations: Record<string, number>;
@@ -28,6 +31,7 @@ export type ProjectData = {
 export const initialData = (): ProjectData => ({
   scales: {},
   measurements: [],
+  regions: [],
   unit: "mm",
   precision: 1,
   rotations: {},
@@ -185,11 +189,31 @@ export function validateData(value: unknown, pageCount: number): ProjectData {
     }
     ids.add(measurement.id);
   }
+  const regions = data.regions === undefined ? [] : data.regions;
+  if (!Array.isArray(regions) || data.measurements.length + regions.length > 100000)
+    throw new Error(t("项目区域数据无效"));
+  for (const region of regions) {
+    if (
+      !region ||
+      !pageValid(region.page) ||
+      typeof region.id !== "string" ||
+      ids.has(region.id) ||
+      typeof region.note !== "string" ||
+      region.note.length > 1000 ||
+      !/^#[0-9a-f]{6}$/i.test(region.color) ||
+      !Number.isFinite(region.opacity) ||
+      region.opacity < 0 || region.opacity > 1 ||
+      !isValidRegionGeometry(region)
+    ) throw new Error(t("项目区域数据无效"));
+    totalPathPoints += region.kind === "polygon" ? region.vertices.length : 4;
+    if (totalPathPoints > 1000000) throw new Error(t("项目区域数据无效"));
+    ids.add(region.id);
+  }
   for (const [page, rotation] of Object.entries(data.rotations)) {
     if (!pageValid(Number(page)) || ![0, 90, 180, 270].includes(rotation))
       throw new Error(t("项目旋转设置无效"));
   }
-  return { ...data, scales };
+  return { ...data, scales, regions };
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {

@@ -1,3 +1,18 @@
+import RegionLayer, { RegionHandles } from "./RegionLayer";
+import {
+  validPolygon,
+  isValidRegionGeometry,
+  resizeRegionVertex,
+} from "./regions.ts";
+import {
+  commandRegistry,
+  chordFromEvent,
+  matchCommand,
+  useShortcuts,
+  commandLabel,
+  type CommandId,
+} from "./shortcuts.ts";
+import ShortcutSettings from "./ShortcutSettings";
 import { pathLength, pathMidpoint } from "./curve.ts";
 import { t, useLanguage, setLanguage } from "./i18n.ts";
 import {
@@ -27,6 +42,8 @@ import {
   Redo2,
   RotateCw,
   Ruler,
+  PaintBucket,
+  Keyboard,
   Spline,
   Save,
   ScanLine,
@@ -48,11 +65,18 @@ import {
   parseDistance,
   validateData,
   type Measurement,
+  type RegionFill,
   type Point,
   type ProjectData,
   type Unit,
 } from "./core";
-import { createDemo, exportPDF, openPDF, loadSnapIndex } from "./pdf";
+import {
+  createDemo,
+  exportPDF,
+  openPDF,
+  loadSnapIndex,
+  setThinLines,
+} from "./pdf";
 import { loadAutosave, saveAutosave } from "./storage";
 import QuickStart, { shouldShowQuickStart } from "./QuickStart";
 import type { SnapHit, SnapIndex } from "./snap";
@@ -65,7 +89,7 @@ import {
   type TrackHit,
 } from "./snap";
 
-type Tool = "select" | "pan" | "calibrate" | "measure" | "curve";
+type Tool = "select" | "pan" | "calibrate" | "measure" | "curve" | "fill";
 type DocumentState = { pdf: PDFDocumentProxy; bytes: Uint8Array; name: string };
 const unitLabels: Record<Unit, string> = {
   mm: "毫米 mm",
@@ -141,6 +165,11 @@ function Thumbnail({
 
 export default function App() {
   const language = useLanguage();
+  const isMac = /Mac/i.test(navigator.platform);
+  const shortcuts = useShortcuts(isMac, language);
+  const [thinLines, setThinLinesEnabled] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [capturingShortcut, setCapturingShortcut] = useState(false);
   useEffect(() => {
     window.document.documentElement.lang = language === "en" ? "en" : "zh-CN";
     window.document.title =
@@ -159,6 +188,30 @@ export default function App() {
   const [rendered, setRendered] = useState(false);
   const [tool, setTool] = useState<Tool>("pan");
   const [curveHit, setCurveHit] = useState<Point[] | null>(null);
+  const [regionDraft, setRegionDraft] = useState<Point[]>([]);
+  const regionDraftRef = useRef(regionDraft);
+  regionDraftRef.current = regionDraft;
+  const [regionPreview, setRegionPreview] = useState<RegionFill | null>(null);
+  const [fillStyle, setFillStyle] = useState({
+    color: colors[0],
+    opacity: 0.25,
+  });
+  const regionGesture = useRef<
+    | null
+    | {
+        kind: "start" | "rectangle" | "polygon";
+        start: Point;
+        client: Point;
+        next: Point;
+      }
+    | { kind: "vertex"; original: RegionFill; index: number; next: RegionFill }
+  >(null);
+  const lastRegionCompletion = useRef<{ point: Point; time: number } | null>(
+    null,
+  );
+  const pendingMeasureTool = useRef<"measure" | "curve" | null>(null);
+  const [opacityPreview, setOpacityPreview] = useState<number | null>(null);
+  const opacityChange = useRef<{ id: string; value: number } | null>(null);
   const [anchor, setAnchor] = useState<Point | null>(null);
   const [cursor, setCursor] = useState<Point | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -235,14 +288,19 @@ export default function App() {
   const selectedMeasurement = data.measurements.find(
     (item) => item.id === selected,
   );
+  const pageRegions = data.regions.filter((item) => item.page === page);
+  const selectedRegion = data.regions.find((item) => item.id === selected);
+  const selectedAnnotation = selectedRegion || selectedMeasurement;
+  const pickAnchor =
+    tool === "fill" ? regionDraft[regionDraft.length - 1] || null : anchor;
   const trackingActive =
-    !!anchor &&
+    !!pickAnchor &&
     shiftPressed &&
     snapEnabled &&
     !space &&
     !altPressed &&
     !calibrationPoints &&
-    (tool === "calibrate" || tool === "measure");
+    (tool === "calibrate" || tool === "measure" || tool === "fill");
 
   const notify = useCallback(
     (text: string, error = false) => setNotice({ text, error }),
@@ -402,10 +460,17 @@ export default function App() {
   }, [page, tool, rotation, document]);
 
   useEffect(() => {
+    setRegionDraft([]);
+    regionDraftRef.current = [];
+    setRegionPreview(null);
+    regionGesture.current = null;
+  }, [page, tool, document]);
+
+  useEffect(() => {
     setSmartPoints([]);
     setTrackingCandidate(null);
     setTrackHit(null);
-  }, [anchor, page, tool, rotation, document, snapEnabled]);
+  }, [pickAnchor, page, tool, rotation, document, snapEnabled]);
 
   useEffect(() => {
     if (
@@ -425,8 +490,10 @@ export default function App() {
   }, [trackingCandidate, trackingActive, smartPoints]);
 
   useEffect(() => {
-    if ((tool === "measure" || tool === "curve") && !scale)
+    if ((tool === "measure" || tool === "curve") && !scale) {
+      pendingMeasureTool.current = tool;
       setTool("calibrate");
+    }
   }, [tool, scale]);
 
   useEffect(() => {
@@ -497,6 +564,7 @@ export default function App() {
     if (!document || !canvas.current) return;
     let canceled = false;
     let task: RenderTask | undefined;
+    setThinLines(document.pdf, thinLines);
     setRendered(false);
     void document.pdf
       .getPage(page)
@@ -529,7 +597,7 @@ export default function App() {
       canceled = true;
       task?.cancel();
     };
-  }, [document, page, zoom, rotation, notify]);
+  }, [document, page, zoom, rotation, thinLines, notify]);
 
   useEffect(() => {
     const element = detailCanvas.current;
@@ -597,7 +665,7 @@ export default function App() {
       container.removeEventListener("scroll", refresh);
       window.removeEventListener("resize", refresh);
     };
-  }, [document, page, viewport, zoom, notify]);
+  }, [document, page, viewport, zoom, thinLines, notify]);
 
   useLayoutEffect(() => {
     const saved = zoomAnchor.current;
@@ -668,7 +736,7 @@ export default function App() {
       if (name.toLowerCase().endsWith(".planmeasure")) {
         const project = JSON.parse(new TextDecoder().decode(bytes));
         if (
-          ![1, 2].includes(project.version) ||
+          ![1, 2, 3].includes(project.version) ||
           typeof project.pdf !== "string" ||
           typeof project.filename !== "string"
         )
@@ -753,15 +821,23 @@ export default function App() {
 
   async function saveProject() {
     if (!document || operation.current) return;
+    if (regionDraftRef.current.length || regionGesture.current) {
+      notify(t("请先完成区域或按 Esc 取消草稿"));
+      return;
+    }
     operation.current = true;
     setBusy(t("正在保存项目"));
     const savedRevision = revision.current;
     try {
       const content = JSON.stringify({
-        version: data.measurements.some((item) => item.path) ? 2 : 1,
+        version: dataRef.current.regions.length
+          ? 3
+          : dataRef.current.measurements.some((item) => item.path)
+            ? 2
+            : 1,
         filename: document.name,
         pdf: bytesToBase64(document.bytes),
-        data,
+        data: dataRef.current,
       });
       const saved = await writeFile(
         `${document.name.replace(/\.pdf$/i, "")}.planmeasure`,
@@ -783,13 +859,17 @@ export default function App() {
   async function exportFile(type: "pdf" | "csv") {
     setExportMenu(false);
     if (!document || operation.current) return;
+    if (regionDraftRef.current.length || regionGesture.current) {
+      notify(t("请先完成区域或按 Esc 取消草稿"));
+      return;
+    }
     operation.current = true;
     setBusy(type === "pdf" ? t("正在导出标注 PDF") : t("正在导出清单"));
     try {
       const bytes =
         type === "pdf"
-          ? await exportPDF(document.bytes, data)
-          : new TextEncoder().encode(measurementCSV(data));
+          ? await exportPDF(document.bytes, dataRef.current)
+          : new TextEncoder().encode(measurementCSV(dataRef.current));
       const saved = await writeFile(
         `${document.name.replace(/\.pdf$/i, "")}-measured.${type}`,
         bytes,
@@ -810,7 +890,14 @@ export default function App() {
   }
 
   function chooseTool(next: Tool) {
+    setRegionDraft([]);
+    regionDraftRef.current = [];
+    setRegionPreview(null);
+    regionGesture.current = null;
+    setSelected(null);
+    pendingMeasureTool.current = null;
     if ((next === "measure" || next === "curve") && !scale) {
+      pendingMeasureTool.current = next;
       setTool("calibrate");
       notify(t("请先选取已知尺寸的两个端点，校准当前页"));
       return;
@@ -838,8 +925,11 @@ export default function App() {
     let x = Math.max(0, Math.min(viewport.width, event.clientX - rect.left));
     let y = Math.max(0, Math.min(viewport.height, event.clientY - rect.top));
     const [rawX, rawY] = viewport.convertToPdfPoint(x, y);
-    if (event.shiftKey && anchor) {
-      const [ax, ay] = viewport.convertToViewportPoint(anchor.x, anchor.y);
+    if (event.shiftKey && pickAnchor) {
+      const [ax, ay] = viewport.convertToViewportPoint(
+        pickAnchor.x,
+        pickAnchor.y,
+      );
       if (Math.abs(x - ax) >= Math.abs(y - ay)) y = ay;
       else x = ax;
     }
@@ -851,14 +941,17 @@ export default function App() {
       snapEnabled &&
       !event.altKey &&
       !space &&
-      (tool === "calibrate" || tool === "measure")
+      (tool === "calibrate" || tool === "measure" || tool === "fill")
     ) {
       const axis: OrthoConstraint | undefined =
-        event.shiftKey && anchor
+        event.shiftKey && pickAnchor
           ? {
-              coordinate: (Math.abs(px - anchor.x) < 1e-6 ? "x" : "y") as
+              coordinate: (Math.abs(px - pickAnchor.x) < 1e-6 ? "x" : "y") as
                 "x" | "y",
-              value: Math.abs(px - anchor.x) < 1e-6 ? anchor.x : anchor.y,
+              value:
+                Math.abs(px - pickAnchor.x) < 1e-6
+                  ? pickAnchor.x
+                  : pickAnchor.y,
             }
           : undefined;
       const pixelsPerPoint = Math.hypot(
@@ -877,7 +970,7 @@ export default function App() {
             { x: rawX, y: rawY },
             10 / pixelsPerPoint,
           ) || null;
-        if (candidate && anchor && samePoint(candidate.point, anchor))
+        if (candidate && pickAnchor && samePoint(candidate.point, pickAnchor))
           candidate = null;
         tracked = nearestTrackingPoint(
           { x: px, y: py },
@@ -921,7 +1014,7 @@ export default function App() {
     snapEnabled,
     viewport,
     smartPoints,
-    anchor,
+    pickAnchor,
     tool,
     calibrationPoints,
   ]);
@@ -991,8 +1084,37 @@ export default function App() {
       setCurveHit(null);
       return;
     }
-    const point = toPDF(event);
+    const point = toPDF(
+      tool === "fill" && !regionDraft.length
+        ? {
+            ...event,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            shiftKey: false,
+            altKey: event.altKey,
+          }
+        : event,
+    );
     if (!point) return;
+    if (tool === "fill") {
+      const completed = lastRegionCompletion.current;
+      if (
+        !regionDraft.length &&
+        completed &&
+        performance.now() - completed.time < 350 &&
+        distance(point, completed.point) * zoom < 10
+      )
+        return;
+      regionGesture.current = {
+        kind: regionDraft.length ? "polygon" : "start",
+        start: point,
+        client: { x: event.clientX, y: event.clientY },
+        next: point,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setCursor(point);
+      return;
+    }
     if (!anchor) {
       setAnchor(point);
       setCursor(point);
@@ -1047,8 +1169,184 @@ export default function App() {
         drag.current.left - event.clientX + drag.current.x;
       stage.current.scrollTop =
         drag.current.top - event.clientY + drag.current.y;
-    } else if (tool === "curve") setCurveHit(curveAt(event));
+      return;
+    }
+    const gesture = regionGesture.current;
+    if (gesture) {
+      const point = toPDF({
+        ...event,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        shiftKey: gesture.kind === "polygon" ? event.shiftKey : false,
+        altKey: event.altKey,
+      });
+      if (!point) return;
+      if (gesture.kind === "vertex") {
+        gesture.next = resizeRegionVertex(
+          gesture.original,
+          gesture.index,
+          point,
+        );
+        setRegionPreview(gesture.next);
+      } else {
+        gesture.next = point;
+        if (
+          gesture.kind === "start" &&
+          Math.hypot(
+            event.clientX - gesture.client.x,
+            event.clientY - gesture.client.y,
+          ) > 5
+        )
+          gesture.kind = "rectangle";
+        if (gesture.kind === "rectangle")
+          setRegionPreview({
+            id: "draft",
+            page,
+            kind: "rectangle",
+            a: gesture.start,
+            b: point,
+            ...fillStyle,
+            note: "",
+          });
+        setCursor(point);
+      }
+      return;
+    }
+    if (tool === "curve") setCurveHit(curveAt(event));
     else setCursor(toPDF(event));
+  }
+
+  function updateRegion(region: RegionFill) {
+    change({
+      ...dataRef.current,
+      regions: dataRef.current.regions.map((item) =>
+        item.id === region.id ? region : item,
+      ),
+    });
+  }
+
+  function completeRegion(region: RegionFill) {
+    if (!isValidRegionGeometry(region)) {
+      notify(t("区域边界无效，请避免自交或零面积"), true);
+      return false;
+    }
+    if (
+      dataRef.current.regions.length + dataRef.current.measurements.length >=
+      100000
+    ) {
+      notify(t("项目标注数量超出限制"), true);
+      return false;
+    }
+    change({
+      ...dataRef.current,
+      regions: [...dataRef.current.regions, region],
+    });
+    setRegionDraft([]);
+    regionDraftRef.current = [];
+    setRegionPreview(null);
+    setSelected(null);
+    setCursor(null);
+    return true;
+  }
+
+  function finishRegionDraft() {
+    const vertices = regionDraftRef.current;
+    if (!validPolygon(vertices)) {
+      notify(t("区域边界无效，请避免自交或零面积"), true);
+      return;
+    }
+    if (
+      completeRegion({
+        id: crypto.randomUUID(),
+        page,
+        kind: "polygon",
+        vertices: [...vertices],
+        ...fillStyle,
+        note: "",
+      })
+    )
+      lastRegionCompletion.current = {
+        point: vertices[vertices.length - 1],
+        time: performance.now(),
+      };
+  }
+
+  function beginRegionVertex(
+    event: ReactPointerEvent<SVGCircleElement>,
+    region: RegionFill,
+    index: number,
+  ) {
+    if (event.button !== 0 || tool !== "select" || busy) return;
+    event.stopPropagation();
+    event.preventDefault();
+    regionGesture.current = {
+      kind: "vertex",
+      original: region,
+      index,
+      next: region,
+    };
+    setRegionPreview(region);
+    event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
+  }
+
+  function pointerUp(event: ReactPointerEvent<SVGSVGElement>) {
+    if (drag.current) {
+      drag.current = null;
+    } else if (regionGesture.current) {
+      const gesture = regionGesture.current;
+      regionGesture.current = null;
+      setRegionPreview(null);
+      if (gesture.kind === "vertex") {
+        if (!isValidRegionGeometry(gesture.next))
+          notify(t("区域边界无效，请避免自交或零面积"), true);
+        else if (
+          JSON.stringify(gesture.next) !== JSON.stringify(gesture.original)
+        )
+          updateRegion(gesture.next);
+      } else if (gesture.kind === "rectangle") {
+        completeRegion({
+          id: crypto.randomUUID(),
+          page,
+          kind: "rectangle",
+          a: gesture.start,
+          b: gesture.next,
+          ...fillStyle,
+          note: "",
+        });
+      } else {
+        const points = regionDraftRef.current;
+        if (
+          points.length >= 3 &&
+          distance(gesture.next, points[0]) * zoom <= 10
+        )
+          finishRegionDraft();
+        else if (
+          !points.length ||
+          distance(gesture.next, points[points.length - 1]) * zoom > 2
+        ) {
+          if (points.length >= 4096) notify(t("区域顶点过多"), true);
+          else {
+            const next = [...points, gesture.next];
+            regionDraftRef.current = next;
+            setRegionDraft(next);
+          }
+        }
+      }
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  function commitOpacity() {
+    const pending = opacityChange.current;
+    opacityChange.current = null;
+    setOpacityPreview(null);
+    if (!pending) return;
+    const region = dataRef.current.regions.find(
+      (item) => item.id === pending.id,
+    );
+    if (region && region.opacity !== pending.value)
+      updateRegion({ ...region, opacity: pending.value });
   }
 
   function calibrate(event: React.FormEvent) {
@@ -1065,7 +1363,8 @@ export default function App() {
       };
       change({ ...data, scales });
       setCalibrationPoints(null);
-      setTool("measure");
+      setTool(pendingMeasureTool.current || "measure");
+      pendingMeasureTool.current = null;
       notify(t("当前页校准完成，可以连续测量"));
     } catch (error) {
       setCalibrationError(errorMessage(error));
@@ -1077,91 +1376,262 @@ export default function App() {
     change({
       ...data,
       measurements: data.measurements.filter((item) => item.id !== selected),
+      regions: data.regions.filter((item) => item.id !== selected),
     });
     setSelected(null);
   }
 
+  const commandContext = {
+    hasDocument: !!document,
+    busy: !!busy || !ready,
+    hasSelection: !!selectedAnnotation,
+    canUndo: !!history.past.length,
+    canRedo: !!history.future.length,
+    page,
+    pageCount: document?.pdf.numPages || 0,
+  };
+  const commandEnabled = Object.fromEntries(
+    commandRegistry.map((command) => [
+      command.id,
+      command.enabled(commandContext) &&
+        !help &&
+        !calibrationPoints &&
+        !shortcutsOpen &&
+        (!regionGesture.current || command.id === "thinLines"),
+    ]),
+  );
+  const menuStateJson = JSON.stringify({
+    bindings: shortcuts.bindings,
+    enabled: commandEnabled,
+    capturing: capturingShortcut,
+    labels: Object.fromEntries(
+      commandRegistry.map((command) => [
+        command.id,
+        commandLabel(command.id, language),
+      ]),
+    ),
+  });
+  useEffect(() => {
+    window.desktop?.setShortcuts(JSON.parse(menuStateJson));
+  }, [menuStateJson]);
+
+  async function dispatchCommand(id: CommandId) {
+    if (
+      help ||
+      calibrationPoints ||
+      shortcutsOpen ||
+      (regionGesture.current && id !== "thinLines") ||
+      capturingShortcut
+    )
+      return;
+    const command = commandRegistry.find((item) => item.id === id);
+    if (!command?.enabled(commandContext)) return;
+    if (
+      regionDraftRef.current.length &&
+      ["save", "exportPdf", "exportCsv", "undo", "redo"].includes(id)
+    ) {
+      notify(t("请先完成区域或按 Esc 取消草稿"));
+      return;
+    }
+    if (["open", "save", "exportPdf", "exportCsv"].includes(id)) {
+      const active = window.document.activeElement;
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement
+      ) {
+        active.blur();
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+      }
+    }
+    switch (id) {
+      case "measure":
+      case "curve":
+      case "fill":
+      case "calibrate":
+      case "select":
+      case "pan":
+        chooseTool(id);
+        break;
+      case "prevPage":
+        navigate(page - 1);
+        break;
+      case "nextPage":
+        navigate(page + 1);
+        break;
+      case "fit":
+        if (document) void fit(document.pdf, page, data.rotations);
+        break;
+      case "actual":
+        setZoomAt(1);
+        break;
+      case "zoomOut":
+        setZoomAt(zoom / 1.25);
+        break;
+      case "zoomIn":
+        setZoomAt(zoom * 1.25);
+        break;
+      case "rotateCW":
+      case "rotateCCW":
+        change({
+          ...data,
+          rotations: {
+            ...data.rotations,
+            [page]: (rotation + (id === "rotateCW" ? 90 : 270)) % 360,
+          },
+        });
+        break;
+      case "thinLines":
+        setThinLinesEnabled((value) => !value);
+        break;
+      case "snap":
+        setSnapEnabled((value) => !value);
+        break;
+      case "editNote": {
+        const note = window.document.getElementById(
+          "note",
+        ) as HTMLInputElement | null;
+        note?.focus();
+        note?.select();
+        break;
+      }
+      case "delete":
+        removeSelected();
+        break;
+      case "undo":
+        undo();
+        break;
+      case "redo":
+        redo();
+        break;
+      case "open":
+        await openFile();
+        break;
+      case "save":
+        await saveProject();
+        break;
+      case "exportPdf":
+        await exportFile("pdf");
+        break;
+      case "exportCsv":
+        await exportFile("csv");
+        break;
+      case "shortcuts":
+        setShortcutsOpen(true);
+        break;
+    }
+  }
+
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
       if (event.key === "Alt") setAltPressed(true);
       if (event.key === "Shift") setShiftPressed(true);
+      const target = event.target;
       const inputTarget =
-        event.target instanceof HTMLInputElement ||
-        event.target instanceof HTMLTextAreaElement ||
-        event.target instanceof HTMLSelectElement;
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+      if (shortcutsOpen) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (help) {
+          setHelp(false);
+          return;
+        }
+        if (calibrationPoints) {
+          setCalibrationPoints(null);
+          pendingMeasureTool.current = null;
+          return;
+        }
+        if (exportMenu) {
+          setExportMenu(false);
+          return;
+        }
+        if (regionGesture.current) {
+          regionGesture.current = null;
+          setRegionPreview(null);
+          return;
+        }
+        if (regionDraftRef.current.length) {
+          setRegionDraft([]);
+          regionDraftRef.current = [];
+          setCursor(null);
+          return;
+        }
+        if (anchor) {
+          setAnchor(null);
+          setSnapHit(null);
+          setSmartPoints([]);
+          setTrackingCandidate(null);
+          setTrackHit(null);
+          return;
+        }
+        setCurveHit(null);
+        setSelected(null);
+        setTool("select");
+        return;
+      }
+      if (help || calibrationPoints || busy || !ready) return;
+      if (inputTarget) {
+        const chord = chordFromEvent(event, isMac);
+        if (chord?.startsWith("Mod+")) {
+          const id = matchCommand(
+            chord,
+            shortcuts.bindings,
+            commandContext,
+            event.repeat,
+          );
+          if (id && ["open", "save", "exportPdf", "exportCsv"].includes(id)) {
+            event.preventDefault();
+            void dispatchCommand(id);
+          }
+        }
+        return;
+      }
       if (
-        (event.ctrlKey || event.metaKey) &&
-        ["o", "s"].includes(event.key.toLowerCase())
+        tool === "fill" &&
+        regionDraftRef.current.length &&
+        event.key === "Enter"
       ) {
         event.preventDefault();
-        if (event.key.toLowerCase() === "o") void openFile();
-        else void saveProject();
+        if (!event.repeat) finishRegionDraft();
         return;
       }
-      if (event.key === "Escape") {
-        setCurveHit(null);
-        setAnchor(null);
-        setSnapHit(null);
-        setSmartPoints([]);
-        setTrackingCandidate(null);
-        setTrackHit(null);
-        setCalibrationPoints(null);
-        setSelected(null);
-        setExportMenu(false);
-        setHelp(false);
-        return;
-      }
-      if (event.key === "Tab" && (calibrationPoints || help)) {
-        const elements = Array.from(
-          window.document.querySelectorAll<HTMLElement>(
-            ".modal button:not(:disabled), .modal input, .modal select",
-          ),
-        );
-        const first = elements[0],
-          last = elements[elements.length - 1];
-        if (event.shiftKey && window.document.activeElement === first) {
-          event.preventDefault();
-          last?.focus();
-        } else if (!event.shiftKey && window.document.activeElement === last) {
-          event.preventDefault();
-          first?.focus();
+      if (
+        tool === "fill" &&
+        regionDraftRef.current.length &&
+        event.key === "Backspace"
+      ) {
+        event.preventDefault();
+        if (!event.repeat) {
+          const next = regionDraftRef.current.slice(0, -1);
+          regionDraftRef.current = next;
+          setRegionDraft(next);
         }
+        return;
       }
-      if (inputTarget) return;
-      if (calibrationPoints || help || busy) return;
       if (event.code === "Space") {
+        if (target instanceof HTMLButtonElement) return;
         event.preventDefault();
         setSpace(true);
-      }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
-        event.preventDefault();
-        if (event.shiftKey) redo();
-        else undo();
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
-        event.preventDefault();
-        redo();
+      if (
+        event.key === "Tab" &&
+        (event.shiftKey || target instanceof HTMLButtonElement)
+      )
         return;
-      }
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key.toLowerCase() === "s" && !event.repeat)
-        setSnapEnabled((enabled) => !enabled);
-      const tools: Record<string, Tool> = {
-        v: "select",
-        h: "pan",
-        c: "calibrate",
-        m: "measure",
-        l: "curve",
-      };
-      if (tools[event.key.toLowerCase()])
-        chooseTool(tools[event.key.toLowerCase()]);
-      if (event.key === "Delete" || event.key === "Backspace") {
+      const chord = chordFromEvent(event, isMac);
+      const id =
+        chord &&
+        matchCommand(chord, shortcuts.bindings, commandContext, event.repeat);
+      if (id) {
         event.preventDefault();
-        removeSelected();
+        void dispatchCommand(id);
       }
-      if (event.key === "+" || event.key === "=") setZoomAt(zoom * 1.25);
-      if (event.key === "-") setZoomAt(zoom / 1.25);
     };
     const keyup = (event: KeyboardEvent) => {
       if (event.code === "Space") setSpace(false);
@@ -1176,13 +1646,25 @@ export default function App() {
       setTrackHit(null);
       lastPointer.current = null;
       drag.current = null;
+      regionGesture.current = null;
+      setRegionPreview(null);
     };
     window.addEventListener("keydown", keydown);
     window.addEventListener("keyup", keyup);
     window.addEventListener("blur", blur);
     const unsubscribe = window.desktop?.onCommand((command) => {
-      if (command === "open") void openFile();
-      if (command === "save") void saveProject();
+      const active = window.document.activeElement;
+      if (
+        (command === "undo" || command === "redo") &&
+        (active instanceof HTMLInputElement ||
+          active instanceof HTMLTextAreaElement ||
+          (active instanceof HTMLElement && active.isContentEditable))
+      ) {
+        window.desktop?.editText(command);
+        return;
+      }
+      if (commandRegistry.some((item) => item.id === command))
+        void dispatchCommand(command as CommandId);
     });
     return () => {
       window.removeEventListener("keydown", keydown);
@@ -1200,7 +1682,7 @@ export default function App() {
   const trackScreen = trackHit && viewport ? screen(trackHit.point) : null;
   const sourceScreen =
     trackHit && viewport ? screen(trackHit.source.point) : null;
-  const anchorScreen = anchor && viewport ? screen(anchor) : null;
+  const anchorScreen = pickAnchor && viewport ? screen(pickAnchor) : null;
   const verticalTrack =
     !!trackScreen &&
     !!anchorScreen &&
@@ -1293,23 +1775,40 @@ export default function App() {
   }
 
   const instructions =
-    tool === "curve"
-      ? t("靠近矢量曲线高亮整段，点击记录长度 · L 曲线测量")
-      : trackingActive
-        ? trackHit
-          ? t("已对齐参考点，点击确认正交落点")
-          : t("正交选点 · 悬停捕捉点获取智慧轨迹")
-        : tool === "calibrate"
-          ? anchor
-            ? t("选择已知尺寸的第二个端点")
-            : t("选择已知尺寸的第一个端点")
-          : tool === "measure"
+    tool === "fill"
+      ? t(
+          "拖动绘制矩形，逐点点击绘制多边形 · Enter 完成 / Backspace 退点 / Esc 取消",
+        )
+      : tool === "curve"
+        ? t("靠近矢量曲线高亮整段，点击记录长度")
+        : trackingActive
+          ? trackHit
+            ? t("已对齐参考点，点击确认正交落点")
+            : t("正交选点 · 悬停捕捉点获取智慧轨迹")
+          : tool === "calibrate"
             ? anchor
-              ? t("选择第二点，完成一次测量")
-              : t("选择第一点，开始测量")
-            : tool === "pan"
-              ? t("拖动画布平移，⌘ / Ctrl + 滚轮缩放")
-              : t("点击标注以选择，可编辑备注或删除");
+              ? t("选择已知尺寸的第二个端点")
+              : t("选择已知尺寸的第一个端点")
+            : tool === "measure"
+              ? anchor
+                ? t("选择第二点，完成一次测量")
+                : t("选择第一点，开始测量")
+              : tool === "pan"
+                ? t("拖动画布平移，⌘ / Ctrl + 滚轮缩放")
+                : t("点击标注以选择，可编辑备注或删除");
+
+  function buttonHint(id: CommandId) {
+    const key = shortcuts.hint(id);
+    return { title: `${commandLabel(id, language)}${key ? ` (${key})` : ""}` };
+  }
+  function shortcutBadge(id: CommandId) {
+    const key = shortcuts.hint(id);
+    return key ? (
+      <kbd className="button-shortcut" aria-hidden="true">
+        {key}
+      </kbd>
+    ) : null;
+  }
 
   return (
     <div
@@ -1346,10 +1845,10 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-symbol">
-            <Ruler size={23} />
+            <img src="./dim-it-logo.png" alt="" width={32} height={32} />
           </span>
           <strong>Dim It</strong>
-          <span className="version">0.4.2</span>
+          <span className="version">0.4.3</span>
         </div>
         <div className="document-title" title={document?.name}>
           {document ? (
@@ -1381,6 +1880,14 @@ export default function App() {
         </select>
         <button
           className="icon-button"
+          aria-label={t("快捷键设置")}
+          onClick={() => void dispatchCommand("shortcuts")}
+          {...buttonHint("shortcuts")}
+        >
+          <Keyboard size={18} />
+        </button>
+        <button
+          className="icon-button"
           title={t("使用帮助")}
           aria-label={t("使用帮助")}
           onClick={() => setHelp(true)}
@@ -1388,67 +1895,102 @@ export default function App() {
           <HelpCircle size={18} />
         </button>
       </header>
-      <nav className="toolbar" aria-label={t("图纸工具")}>
+      <nav
+        className="toolbar"
+        aria-label={t("图纸工具")}
+        onClick={(event) => {
+          if (event.detail > 0)
+            requestAnimationFrame(() =>
+              window.document
+                .querySelector<SVGSVGElement>(".overlay")
+                ?.focus({ preventScroll: true }),
+            );
+        }}
+      >
         <div className="toolgroup">
-          <button onClick={() => void openFile()} disabled={!!busy || !ready}>
+          <button
+            onClick={() => void dispatchCommand("open")}
+            disabled={!!busy || !ready}
+            {...buttonHint("open")}
+          >
             <FolderOpen size={17} />
             {t("打开图纸")}
+            {shortcutBadge("open")}
           </button>
           <button
             className="save-button"
-            onClick={() => void saveProject()}
+            onClick={() => void dispatchCommand("save")}
             disabled={!document || !!busy}
+            {...buttonHint("save")}
           >
             <Save size={17} />
             {t("保存项目")}
+            {shortcutBadge("save")}
           </button>
         </div>
         <span className="divider" />
         <div className="toolgroup modes">
           <button
             className={tool === "select" ? "active" : ""}
-            onClick={() => chooseTool("select")}
+            onClick={() => void dispatchCommand("select")}
             disabled={!document}
-            title={t("选择 V")}
+            {...buttonHint("select")}
           >
             <MousePointer2 size={17} />
             <span>{t("选择")}</span>
+            {shortcutBadge("select")}
           </button>
           <button
             className={tool === "pan" ? "active" : ""}
-            onClick={() => chooseTool("pan")}
+            onClick={() => void dispatchCommand("pan")}
             disabled={!document}
-            title={t("平移 H / 空格")}
+            {...buttonHint("pan")}
           >
             <Hand size={17} />
             <span>{t("平移")}</span>
+            {shortcutBadge("pan")}
           </button>
           <button
             className={tool === "calibrate" ? "active" : ""}
-            onClick={() => chooseTool("calibrate")}
+            onClick={() => void dispatchCommand("calibrate")}
             disabled={!document}
-            title={t("校准 C")}
+            {...buttonHint("calibrate")}
           >
             <Crosshair size={18} />
             {t("校准比例")}
+            {shortcutBadge("calibrate")}
           </button>
           <button
             className={tool === "measure" ? "active" : ""}
-            onClick={() => chooseTool("measure")}
+            onClick={() => void dispatchCommand("measure")}
             disabled={!document}
-            title={t("测量 M")}
+            {...buttonHint("measure")}
           >
             <Ruler size={18} />
             {t("长度测量")}
+            {shortcutBadge("measure")}
           </button>
           <button
             className={tool === "curve" ? "active" : ""}
-            onClick={() => chooseTool("curve")}
+            onClick={() => void dispatchCommand("curve")}
             disabled={!document}
-            title={t("曲线长度 L")}
+            {...buttonHint("curve")}
           >
             <Spline size={18} />
             {t("曲线长度")}
+            {shortcutBadge("curve")}
+          </button>
+        </div>
+        <div className="toolgroup">
+          <button
+            className={tool === "fill" ? "active" : ""}
+            disabled={!document}
+            onClick={() => void dispatchCommand("fill")}
+            {...buttonHint("fill")}
+          >
+            <PaintBucket size={18} />
+            {t("区域填色")}
+            {shortcutBadge("fill")}
           </button>
         </div>
         <span className="divider" />
@@ -1457,34 +1999,46 @@ export default function App() {
             className={snapEnabled ? "active snap-toggle" : "snap-toggle"}
             aria-label={t("对象捕捉")}
             aria-pressed={snapEnabled}
-            title={t("对象捕捉 S，按住 Alt 临时自由选点")}
             disabled={!document}
-            onClick={() => setSnapEnabled((enabled) => !enabled)}
+            onClick={() => void dispatchCommand("snap")}
+            {...buttonHint("snap")}
           >
             <Magnet size={17} />
             <span>{t("捕捉")}</span>
+            {shortcutBadge("snap")}
           </button>
         </div>
         <div className="toolgroup">
           <button
             className="icon-button"
             aria-label={t("撤销")}
-            title={t("撤销 ⌘ / Ctrl + Z")}
-            onClick={undo}
+            onClick={() => void dispatchCommand("undo")}
             disabled={!history.past.length}
+            {...buttonHint("undo")}
           >
             <Undo2 size={17} />
           </button>
           <button
             className="icon-button"
             aria-label={t("重做")}
-            title={t("重做 ⌘ / Ctrl + Shift + Z")}
-            onClick={redo}
+            onClick={() => void dispatchCommand("redo")}
             disabled={!history.future.length}
+            {...buttonHint("redo")}
           >
             <Redo2 size={17} />
           </button>
         </div>
+        <button
+          aria-label={t("细线显示")}
+          aria-pressed={thinLines}
+          className={thinLines ? "active" : ""}
+          disabled={!document}
+          onClick={() => void dispatchCommand("thinLines")}
+          {...buttonHint("thinLines")}
+        >
+          {t("细线显示")}
+          {shortcutBadge("thinLines")}
+        </button>
         <div className="toolbar-spacer" />
         <div className="export-control">
           <button
@@ -1504,13 +2058,21 @@ export default function App() {
                 onClick={() => setExportMenu(false)}
               />
               <div className="dropdown">
-                <button onClick={() => void exportFile("pdf")}>
+                <button
+                  onClick={() => void dispatchCommand("exportPdf")}
+                  {...buttonHint("exportPdf")}
+                >
                   {t("带标注 PDF")}
                   <small>{t("供查看与打印")}</small>
+                  {shortcutBadge("exportPdf")}
                 </button>
-                <button onClick={() => void exportFile("csv")}>
+                <button
+                  onClick={() => void dispatchCommand("exportCsv")}
+                  {...buttonHint("exportCsv")}
+                >
                   {t("测量清单 CSV")}
                   <small>{t("尺寸与备注")}</small>
+                  {shortcutBadge("exportCsv")}
                 </button>
               </div>
             </>
@@ -1610,6 +2172,7 @@ export default function App() {
                     width: viewport?.width || 1,
                     height: viewport?.height || 1,
                   }}
+                  data-thin-lines={thinLines}
                   data-testid="paper"
                 >
                   <canvas
@@ -1628,23 +2191,28 @@ export default function App() {
                   {viewport && (
                     <svg
                       className="overlay"
+                      data-tool={tool}
                       data-testid="drawing-overlay"
                       data-snap-state={snapStatus}
                       width={viewport.width}
                       height={viewport.height}
                       onPointerDown={pointerDown}
                       onPointerMove={pointerMove}
-                      onPointerUp={(event) => {
-                        drag.current = null;
+                      tabIndex={0}
+                      onDoubleClick={(event) => {
                         if (
-                          event.currentTarget.hasPointerCapture(event.pointerId)
-                        )
-                          event.currentTarget.releasePointerCapture(
-                            event.pointerId,
-                          );
+                          tool === "fill" &&
+                          regionDraftRef.current.length >= 3
+                        ) {
+                          event.preventDefault();
+                          finishRegionDraft();
+                        }
                       }}
+                      onPointerUp={pointerUp}
                       onPointerCancel={() => {
                         drag.current = null;
+                        regionGesture.current = null;
+                        setRegionPreview(null);
                         setTrackingCandidate(null);
                         setTrackHit(null);
                       }}
@@ -1659,6 +2227,22 @@ export default function App() {
                         }
                       }}
                     >
+                      <RegionLayer
+                        regions={pageRegions.map((region) =>
+                          region.id === selected && opacityPreview !== null
+                            ? { ...region, opacity: opacityPreview }
+                            : region,
+                        )}
+                        selected={selected}
+                        preview={regionPreview}
+                        draft={regionDraft}
+                        cursor={cursor}
+                        screen={screen}
+                        canSelect={tool === "select" && !space}
+                        onSelect={setSelected}
+                        color={fillStyle.color}
+                        opacity={fillStyle.opacity}
+                      />
                       {trackingActive && (
                         <g
                           className="smart-track-overlay"
@@ -1909,6 +2493,17 @@ export default function App() {
                           </g>
                         </g>
                       )}
+                      {tool === "select" && !space && selectedRegion && (
+                        <RegionHandles
+                          region={
+                            regionPreview?.id === selectedRegion.id
+                              ? regionPreview
+                              : selectedRegion
+                          }
+                          screen={screen}
+                          onVertexDown={beginRegionVertex}
+                        />
+                      )}
                     </svg>
                   )}
                 </div>
@@ -1928,11 +2523,13 @@ export default function App() {
                 <p>{t("打开 PDF，校准一个已知尺寸，即可开始测量。")}</p>
                 <button
                   className="primary"
-                  onClick={() => void openFile()}
+                  onClick={() => void dispatchCommand("open")}
                   disabled={!ready || !!busy}
+                  {...buttonHint("open")}
                 >
                   <FolderOpen size={18} />
                   {t("打开 PDF 图纸")}
+                  {shortcutBadge("open")}
                 </button>
                 <span className="drop-hint">
                   {t("也可以将 PDF 或项目文件拖入窗口")}
@@ -1981,47 +2578,41 @@ export default function App() {
               <div className="view-controls">
                 <button
                   className="icon-button"
-                  onClick={() => setZoomAt(zoom / 1.25)}
+                  onClick={() => void dispatchCommand("zoomOut")}
                   aria-label={t("缩小")}
+                  {...buttonHint("zoomOut")}
                 >
                   <Minus size={16} />
                 </button>
                 <button
                   className="zoom-value"
-                  onClick={() => setZoomAt(1)}
-                  title="100%"
+                  onClick={() => void dispatchCommand("actual")}
+                  {...buttonHint("actual")}
                 >
                   {Math.round(zoom * 100)}%
                 </button>
                 <button
                   className="icon-button"
-                  onClick={() => setZoomAt(zoom * 1.25)}
+                  onClick={() => void dispatchCommand("zoomIn")}
                   aria-label={t("放大")}
+                  {...buttonHint("zoomIn")}
                 >
                   <Plus size={16} />
                 </button>
                 <span />
                 <button
                   className="icon-button"
-                  onClick={() => void fit(document.pdf, page, data.rotations)}
+                  onClick={() => void dispatchCommand("fit")}
                   aria-label={t("适合页面")}
-                  title={t("适合页面")}
+                  {...buttonHint("fit")}
                 >
                   <Maximize size={16} />
                 </button>
                 <button
                   className="icon-button"
-                  onClick={() =>
-                    change({
-                      ...data,
-                      rotations: {
-                        ...data.rotations,
-                        [page]: (rotation + 90) % 360,
-                      },
-                    })
-                  }
+                  onClick={() => void dispatchCommand("rotateCW")}
                   aria-label={t("旋转页面")}
-                  title={t("顺时针旋转 90°")}
+                  {...buttonHint("rotateCW")}
                 >
                   <RotateCw size={16} />
                 </button>
@@ -2080,9 +2671,23 @@ export default function App() {
                 <button
                   key={value}
                   aria-label={t`颜色 ${value}`}
-                  className={value === color ? "chosen" : ""}
+                  className={
+                    value ===
+                    (selectedRegion?.color ||
+                      (tool === "fill" ? fillStyle.color : color))
+                      ? "chosen"
+                      : ""
+                  }
                   style={{ background: value }}
                   onClick={() => {
+                    if (selectedRegion) {
+                      updateRegion({ ...selectedRegion, color: value });
+                      return;
+                    }
+                    if (tool === "fill") {
+                      setFillStyle((style) => ({ ...style, color: value }));
+                      return;
+                    }
                     setColor(value);
                     if (selectedMeasurement)
                       change({
@@ -2095,11 +2700,51 @@ export default function App() {
                       });
                   }}
                 >
-                  {value === color && <Check size={12} />}
+                  {value ===
+                    (selectedRegion?.color ||
+                      (tool === "fill" ? fillStyle.color : color)) && (
+                    <Check size={12} />
+                  )}
                 </button>
               ))}
             </div>
           </section>
+          {(tool === "fill" || selectedRegion) && (
+            <section className="fill-settings">
+              <label htmlFor="fill-opacity">
+                {t("不透明度")}{" "}
+                {Math.round(
+                  (opacityPreview ??
+                    selectedRegion?.opacity ??
+                    fillStyle.opacity) * 100,
+                )}
+                %
+              </label>
+              <input
+                id="fill-opacity"
+                type="range"
+                min="0"
+                max="100"
+                value={Math.round(
+                  (opacityPreview ??
+                    selectedRegion?.opacity ??
+                    fillStyle.opacity) * 100,
+                )}
+                onChange={(event) => {
+                  const value = Number(event.target.value) / 100;
+                  if (selectedRegion) {
+                    opacityChange.current = { id: selectedRegion.id, value };
+                    setOpacityPreview(value);
+                  } else
+                    setFillStyle((style) => ({ ...style, opacity: value }));
+                }}
+                onPointerUp={commitOpacity}
+                onPointerCancel={commitOpacity}
+                onKeyUp={commitOpacity}
+                onBlur={commitOpacity}
+              />
+            </section>
+          )}
           <section className="calibration-card">
             <div className="section-title">
               <Crosshair size={16} />
@@ -2119,9 +2764,11 @@ export default function App() {
                 <p>{t("参考线实际尺寸 · 仅作用于当前页")}</p>
                 <button
                   className="subtle-button"
-                  onClick={() => chooseTool("calibrate")}
+                  onClick={() => void dispatchCommand("calibrate")}
+                  {...buttonHint("calibrate")}
                 >
                   {t("重新校准")}
+                  {shortcutBadge("calibrate")}
                 </button>
                 <small className="recalculate-note">
                   {t("重新校准会同步重算本页测量。")}
@@ -2133,10 +2780,12 @@ export default function App() {
                 <button
                   className="subtle-button"
                   disabled={!document}
-                  onClick={() => chooseTool("calibrate")}
+                  onClick={() => void dispatchCommand("calibrate")}
+                  {...buttonHint("calibrate")}
                 >
                   <Crosshair size={14} />
                   {t("校准当前页")}
+                  {shortcutBadge("calibrate")}
                 </button>
               </>
             )}
@@ -2149,74 +2798,107 @@ export default function App() {
             <span className="list-scope">{t("当前页")}</span>
           </div>
           <div className="measurements-list">
-            {pageMeasurements.length ? (
-              pageMeasurements.map((item) => {
-                const index = data.measurements.indexOf(item) + 1;
-                return (
+            {pageMeasurements.length
+              ? pageMeasurements.map((item) => {
+                  const index = data.measurements.indexOf(item) + 1;
+                  return (
+                    <button
+                      className={`measurement-row ${selected === item.id ? "selected" : ""}`}
+                      key={item.id}
+                      onClick={() => {
+                        setSelected(item.id);
+                        setTool("select");
+                      }}
+                    >
+                      <span
+                        className="measurement-index"
+                        style={{ color: item.color }}
+                      >
+                        {String(index).padStart(2, "0")}
+                      </span>
+                      <span>
+                        <strong>
+                          {formatDistance(
+                            measurementMM(item, data)!,
+                            data.unit,
+                            data.precision,
+                          )}
+                        </strong>
+                        <small>
+                          {item.note ||
+                            (item.path ? t("曲线长度") : t("长度测量"))}
+                        </small>
+                      </span>
+                      <Ruler size={14} />
+                    </button>
+                  );
+                })
+              : !pageRegions.length && (
+                  <div className="records-empty">
+                    <Ruler size={29} strokeWidth={1.2} />
+                    <strong>{t("等待第一条测量")}</strong>
+                    <p>
+                      {scale
+                        ? t("点击「长度测量」，在图纸上选取两个端点。")
+                        : t("完成比例校准后，即可在图纸上连续测量。")}
+                    </p>
+                  </div>
+                )}
+            {!!pageRegions.length && (
+              <div className="region-records">
+                <div className="panel-heading">
+                  {t("填色区域")}
+                  <small>{pageRegions.length}</small>
+                </div>
+                {pageRegions.map((region, index) => (
                   <button
-                    className={`measurement-row ${selected === item.id ? "selected" : ""}`}
-                    key={item.id}
+                    data-testid="region-row"
+                    key={region.id}
+                    className={`region-row ${selected === region.id ? "selected" : ""}`}
                     onClick={() => {
-                      setSelected(item.id);
+                      setSelected(region.id);
                       setTool("select");
                     }}
                   >
                     <span
-                      className="measurement-index"
-                      style={{ color: item.color }}
-                    >
-                      {String(index).padStart(2, "0")}
-                    </span>
+                      className="region-swatch"
+                      style={{ background: region.color }}
+                    />
                     <span>
-                      <strong>
-                        {formatDistance(
-                          measurementMM(item, data)!,
-                          data.unit,
-                          data.precision,
-                        )}
-                      </strong>
+                      {t("填色区域")} {index + 1}
                       <small>
-                        {item.note ||
-                          (item.path ? t("曲线长度") : t("长度测量"))}
+                        {region.note ||
+                          (region.kind === "rectangle"
+                            ? t("矩形")
+                            : t("多边形"))}
                       </small>
                     </span>
-                    <Ruler size={14} />
                   </button>
-                );
-              })
-            ) : (
-              <div className="records-empty">
-                <Ruler size={29} strokeWidth={1.2} />
-                <strong>{t("等待第一条测量")}</strong>
-                <p>
-                  {scale
-                    ? t("点击「长度测量」，在图纸上选取两个端点。")
-                    : t("完成比例校准后，即可在图纸上连续测量。")}
-                </p>
+                ))}
               </div>
             )}
           </div>
-          {selectedMeasurement && (
+          {selectedAnnotation && (
             <div className="selection-editor">
               <div>
                 <label htmlFor="note">{t("标注备注")}</label>
                 <button
                   className="icon-button danger"
-                  onClick={removeSelected}
+                  onClick={() => void dispatchCommand("delete")}
                   aria-label={t("删除标注")}
-                  title={t("删除 Delete")}
+                  {...buttonHint("delete")}
                 >
                   <Trash2 size={15} />
                 </button>
               </div>
               <input
                 id="note"
-                key={selectedMeasurement.id + selectedMeasurement.note}
-                defaultValue={selectedMeasurement.note}
+                key={selectedAnnotation.id + selectedAnnotation.note}
+                defaultValue={selectedAnnotation.note}
                 maxLength={120}
                 placeholder={t("例如 客厅净宽")}
                 onBlur={(event) => {
-                  if (event.target.value !== selectedMeasurement.note)
+                  if (event.target.value !== selectedAnnotation.note)
                     change({
                       ...data,
                       measurements: data.measurements.map((item) =>
@@ -2224,16 +2906,32 @@ export default function App() {
                           ? { ...item, note: event.target.value }
                           : item,
                       ),
+                      regions: data.regions.map((item) =>
+                        item.id === selected
+                          ? { ...item, note: event.target.value }
+                          : item,
+                      ),
                     });
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") event.currentTarget.blur();
+                  if (event.key === "Enter") {
+                    event.stopPropagation();
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === "Escape") {
+                    event.stopPropagation();
+                    event.currentTarget.value = selectedAnnotation.note;
+                    event.currentTarget.blur();
+                  }
                 }}
               />
             </div>
           )}
           <div className="inspector-footer">
-            <b>{t`${data.measurements.length} 条测量`}</b>
+            <b>
+              {t`${data.measurements.length} 条测量`} · {data.regions.length}{" "}
+              {t("区域")}
+            </b>
             <span>{t("整份图纸")}</span>
           </div>
         </aside>
@@ -2249,9 +2947,10 @@ export default function App() {
         {document && (
           <div className="page-navigation">
             <button
-              onClick={() => navigate(page - 1)}
+              onClick={() => void dispatchCommand("prevPage")}
               disabled={page <= 1}
               aria-label={t("上一页")}
+              {...buttonHint("prevPage")}
             >
               <ChevronLeft size={14} />
             </button>
@@ -2259,9 +2958,10 @@ export default function App() {
               {page} / {document.pdf.numPages}
             </span>
             <button
-              onClick={() => navigate(page + 1)}
+              onClick={() => void dispatchCommand("nextPage")}
               disabled={page >= document.pdf.numPages}
               aria-label={t("下一页")}
+              {...buttonHint("nextPage")}
             >
               <ChevronRight size={14} />
             </button>
@@ -2361,18 +3061,56 @@ export default function App() {
               </p>
             )}
             <div className="modal-actions">
-              <button type="button" onClick={() => setCalibrationPoints(null)}>
+              <button
+                type="button"
+                title={`${t("取消")} (Esc)`}
+                onClick={() => setCalibrationPoints(null)}
+              >
                 {t("取消")}
+                <kbd className="button-shortcut" aria-hidden="true">
+                  Esc
+                </kbd>
               </button>
-              <button className="primary" type="submit">
+              <button
+                title={`${t("确认校准")} (Enter)`}
+                className="primary"
+                type="submit"
+              >
                 {t("确认校准")}
+                <kbd className="button-shortcut" aria-hidden="true">
+                  Enter
+                </kbd>
                 <Check size={16} />
               </button>
             </div>
           </form>
         </div>
       )}
-      {help && <QuickStart onClose={() => setHelp(false)} />}
+      {help && (
+        <QuickStart
+          onClose={() => setHelp(false)}
+          shortcutHint={shortcuts.hint}
+        />
+      )}
+      {shortcutsOpen && (
+        <ShortcutSettings
+          bindings={shortcuts.bindings}
+          onChange={shortcuts.change}
+          onClose={() => {
+            setShortcutsOpen(false);
+            setCapturingShortcut(false);
+          }}
+          onCaptureChange={(value) => {
+            setCapturingShortcut(value);
+            window.desktop?.setShortcuts({
+              ...JSON.parse(menuStateJson),
+              capturing: value,
+            });
+          }}
+          isMac={isMac}
+          warning={shortcuts.warning}
+        />
+      )}
     </div>
   );
 }

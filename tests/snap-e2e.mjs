@@ -12,6 +12,12 @@ const app = await electron.launch({
   timeout: 60000,
 });
 const page = await app.firstWindow();
+// Isolate synthetic hover/modifier input from native OS pointer events.
+await app.evaluate(({ BrowserWindow }) => {
+  const testWindow = BrowserWindow.getAllWindows()[0];
+  testWindow.webContents.setBackgroundThrottling(false);
+  testWindow.hide();
+});
 page.setDefaultTimeout(20000);
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
@@ -19,7 +25,16 @@ page.on("dialog", (dialog) => {
   void dialog.accept().catch(() => {});
 });
 
+async function frame() {
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+}
 async function settled() {
+  await frame();
   await page.waitForFunction(() => {
     const status = document.querySelector(".statusbar")?.textContent || "";
     const geometry = document
@@ -34,6 +49,7 @@ async function settled() {
 }
 
 async function moveNear(x, y, rotation = 0, dx = 3, dy = 2) {
+  await frame();
   const box = await page.getByTestId("paper").boundingBox();
   const [vx, vy, width, height] =
     rotation === 90

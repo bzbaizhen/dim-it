@@ -1,8 +1,10 @@
+import { PDFCanvasFactory } from "./thinLines.ts";
+import { regionVertices } from "./regions.ts";
 import { pathMidpoint } from "./curve.ts";
 import { t } from "./i18n.ts";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, degrees, BlendMode } from "pdf-lib";
 import {
   formatDistance,
   measurementMM,
@@ -28,10 +30,24 @@ export async function loadSnapIndex(
   );
 }
 
+const canvasFactories = new WeakMap<PDFDocumentProxy, PDFCanvasFactory>();
+export function setThinLines(pdf: PDFDocumentProxy, enabled: boolean) {
+  const factory = canvasFactories.get(pdf);
+  if (factory) factory.thinLines = enabled;
+}
+
 export async function openPDF(bytes: Uint8Array): Promise<PDFDocumentProxy> {
   // Copy before PDF.js transfers the buffer to its worker.
   const assetUrl = new URL("pdf-assets/", window.location.href).href;
+  let factory: PDFCanvasFactory;
+  class CanvasFactory extends PDFCanvasFactory {
+    constructor(options: ConstructorParameters<typeof PDFCanvasFactory>[0]) {
+      super(options);
+      factory = this;
+    }
+  }
   const task = pdfjs.getDocument({
+    CanvasFactory,
     data: bytes.slice(),
     cMapUrl: `${assetUrl}cmaps/`,
     cMapPacked: true,
@@ -39,7 +55,9 @@ export async function openPDF(bytes: Uint8Array): Promise<PDFDocumentProxy> {
     wasmUrl: `${assetUrl}wasm/`,
   });
   try {
-    return await task.promise;
+    const pdf = await task.promise;
+    canvasFactories.set(pdf, factory!);
+    return pdf;
   } catch (error) {
     await task.destroy().catch(() => {});
     if (error instanceof Error && error.name === "PasswordException") {
@@ -139,6 +157,29 @@ export async function exportPDF(
   const pdf = await PDFDocument.load(bytes);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const pages = pdf.getPages();
+  for (const region of data.regions) {
+    const vertices = regionVertices(region);
+    const color = rgb(
+      ...([1, 3, 5].map(
+        (start) => parseInt(region.color.slice(start, start + 2), 16) / 255,
+      ) as [number, number, number]),
+    );
+    // drawSvgPath flips SVG Y downward, so negate native PDF Y coordinates.
+    const path =
+      vertices
+        .map((point, index) => `${index ? "L" : "M"} ${point.x} ${-point.y}`)
+        .join(" ") + " Z";
+    pages[region.page - 1].drawSvgPath(path, {
+      x: 0,
+      y: 0,
+      color,
+      borderColor: color,
+      borderWidth: 0.7,
+      opacity: region.opacity,
+      borderOpacity: region.opacity,
+      blendMode: BlendMode.Multiply,
+    });
+  }
   for (const item of data.measurements) {
     const mm = measurementMM(item, data);
     if (mm === null) continue;
@@ -219,6 +260,6 @@ export async function exportPDF(
       ),
     );
   }
-  pdf.setProducer("Dim It 0.4.2");
+  pdf.setProducer("Dim It 0.4.3");
   return pdf.save();
 }

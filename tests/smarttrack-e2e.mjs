@@ -1,6 +1,6 @@
 import { _electron as electron } from "playwright";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -12,7 +12,37 @@ const app = await electron.launch({
   timeout: 60000,
 });
 const page = await app.firstWindow();
+// Keep system cursor events from interrupting synthetic Shift-hover dwell.
+await app.evaluate(({ BrowserWindow }) => {
+  const testWindow = BrowserWindow.getAllWindows()[0];
+  testWindow.webContents.setBackgroundThrottling(false);
+  testWindow.hide();
+});
 page.setDefaultTimeout(20000);
+if (process.env.SMARTTRACK_TRACE) {
+  await page.evaluate(() => {
+    window.smarttrackTrace = [];
+    const record = (event) => {
+      const overlay = document.querySelector(".overlay");
+      window.smarttrackTrace.push({
+        time: performance.now(), type: event.type, key: event.key,
+        shift: event.shiftKey, x: event.clientX, y: event.clientY,
+        target: event.target?.getAttribute?.("class"),
+        related: event.relatedTarget?.getAttribute?.("class"),
+        trusted: event.isTrusted,
+        tool: overlay?.getAttribute("data-tool"),
+        candidate: document.querySelector(".smart-candidate")?.outerHTML,
+        references: document.querySelectorAll(".smart-reference").length,
+        focused: document.hasFocus(),
+      });
+      if (window.smarttrackTrace.length > 800) window.smarttrackTrace.shift();
+    };
+    for (const type of ["pointermove", "pointerleave", "pointerout", "pointerover", "pointerdown", "pointerup", "keydown", "keyup", "blur", "focus"])
+      window.addEventListener(type, record, true);
+    const observer = new MutationObserver(() => record({type: "dom"}));
+    observer.observe(document.body, {subtree: true, childList: true});
+  });
+}
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("dialog", (dialog) => {
@@ -31,7 +61,25 @@ async function settled() {
   );
 }
 
+let shiftHeld = false,
+  altHeld = false;
+async function keydown(key) {
+  await page.keyboard.down(key);
+  if (key === "Shift") shiftHeld = true;
+  if (key === "Alt") altHeld = true;
+}
+async function keyup(key) {
+  await page.keyboard.up(key);
+  if (key === "Shift") shiftHeld = false;
+  if (key === "Alt") altHeld = false;
+}
 async function move(x, y, rotation = 0, dx = 3, dy = 2) {
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
   const box = await page.getByTestId("paper").boundingBox();
   const [vx, vy, width, height] =
     rotation === 90
@@ -43,7 +91,18 @@ async function move(x, y, rotation = 0, dx = 3, dy = 2) {
     x: box.x + (vx / width) * box.width + dx,
     y: box.y + (vy / height) * box.height + dy,
   };
-  await page.mouse.move(position.x, position.y);
+  // Hover uses one event stream. A native move outside the canvas would also
+  // enqueue pointerout and cancel the reference dwell being tested here.
+  await page
+    .getByTestId("drawing-overlay")
+    .dispatchEvent("pointermove", {
+      clientX: position.x,
+      clientY: position.y,
+      pointerId: 1,
+      pointerType: "mouse",
+      shiftKey: shiftHeld,
+      altKey: altHeld,
+    });
   return position;
 }
 
@@ -89,7 +148,7 @@ try {
   await settled();
   await page.getByRole("button", { name: "校准比例", exact: true }).click();
   await pick(100, 100);
-  await page.keyboard.down("Shift");
+  await keydown("Shift");
   await move(300, 250);
   await page.getByTestId("smart-candidate").waitFor();
   await move(180, 180);
@@ -110,13 +169,13 @@ try {
   assert.ok(
     Math.abs(guide.x1 - guide.x2) < 1e-6 && Math.abs(guide.y1 - guide.y2) > 100,
   );
-  await page.keyboard.up("Shift");
+  await keyup("Shift");
   await page.getByTestId("smart-track-overlay").waitFor({ state: "hidden" });
-  await page.keyboard.down("Shift");
+  await keydown("Shift");
   await projected(300, 100);
-  await page.keyboard.down("Alt");
+  await keydown("Alt");
   await page.getByTestId("smart-track-hit").waitFor({ state: "hidden" });
-  await page.keyboard.up("Alt");
+  await keyup("Alt");
   await projected(300, 100);
   const notice = page.getByRole("button", { name: "关闭提示" });
   if (await notice.count()) await notice.click();
@@ -126,11 +185,11 @@ try {
     path: path.join(results, "smarttrack-horizontal.png"),
   });
   await page.mouse.click(target.x, target.y);
-  await page.keyboard.up("Shift");
+  await keyup("Shift");
   await page.getByLabel("已知尺寸", { exact: true }).fill("2000");
   await page.getByRole("button", { name: "确认校准" }).click();
   await pick(250, 100);
-  await page.keyboard.down("Shift");
+  await keydown("Shift");
   assert.equal(await page.getByTestId("smart-reference").count(), 0);
   await acquire(300, 350);
   await projected(250, 350);
@@ -142,7 +201,7 @@ try {
     path: path.join(results, "smarttrack-vertical.png"),
   });
   await page.mouse.click(vertical.x, vertical.y);
-  await page.keyboard.up("Shift");
+  await keyup("Shift");
   await page
     .locator(".measurement-row")
     .filter({ hasText: "2,500.0 mm" })
@@ -178,27 +237,31 @@ try {
     await settled();
     await page.getByRole("button", { name: "校准比例", exact: true }).click();
     await pick(100, 100, rotation);
-    await page.keyboard.down("Shift");
+    await keydown("Shift");
     assert.equal(await page.getByTestId("smart-reference").count(), 0);
     await acquire(300, 250, rotation);
     await projected(300, 100);
     await page.keyboard.press("Escape");
     await page.getByTestId("smart-reference").waitFor({ state: "hidden" });
-    await page.keyboard.up("Shift");
+    await keyup("Shift");
   }
   await pick(100, 100, 270);
-  await page.keyboard.down("Shift");
+  await keydown("Shift");
   await acquire(300, 250, 270);
   await page.getByRole("button", { name: "对象捕捉", exact: true }).click();
   await page.getByTestId("smart-track-overlay").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "对象捕捉", exact: true }).click();
   assert.equal(await page.getByTestId("smart-reference").count(), 0);
-  await page.keyboard.up("Shift");
+  await keyup("Shift");
   console.log(
     "PASS native 90 / 270 degree pages, per-segment reset, page changes, Escape and snap-toggle cleanup",
   );
   assert.deepEqual(errors, []);
 } finally {
+  if (process.env.SMARTTRACK_TRACE) {
+    const trace = await page.evaluate(() => window.smarttrackTrace);
+    await writeFile(process.env.SMARTTRACK_TRACE, JSON.stringify(trace, null, 2));
+  }
   await app.close();
   await rm(profile, { recursive: true, force: true });
 }

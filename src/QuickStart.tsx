@@ -1,3 +1,4 @@
+import { commandLabel, type CommandId } from "./shortcuts.ts";
 import { t, useLanguage, setLanguage } from "./i18n.ts";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
@@ -21,6 +22,14 @@ export function shouldShowQuickStart(): boolean {
   }
 }
 
+const stepCommands: CommandId[][] = [
+  ["open", "prevPage", "nextPage", "thinLines"],
+  ["calibrate"],
+  ["measure", "curve", "fill"],
+  ["snap"],
+  [],
+  ["save", "exportPdf"],
+];
 const steps = [
   {
     title: "打开与浏览图纸",
@@ -30,7 +39,6 @@ const steps = [
       "左侧切换页面，右下角可旋转图纸或适合页面。",
       "空格拖动平移，Cmd / Ctrl + 滚轮缩放。",
     ],
-    keys: ["Cmd / Ctrl + O 打开", "H 平移"],
   },
   {
     title: "两点校准比例",
@@ -40,17 +48,15 @@ const steps = [
       "选好单位再填数值，英尺英寸可填 8' 6\"。",
       "每页分别校准，重新校准会重算该页测量。",
     ],
-    keys: ["C 校准"],
   },
   {
     title: "测量、单位与标注",
     icon: Ruler,
     items: [
       "点击「长度测量」连续选两点，右侧切换单位并自动换算。",
-      "点击「曲线长度」后，靠近矢量弧线或曲线，整段高亮后点击记录。",
+      "曲线可整段测量，区域填色可拖动矩形或逐点绘制多边形。",
       "选中标注可改备注、颜色，Delete 删除，撤销可恢复。",
     ],
-    keys: ["M 测量 / L 曲线", "V 选择", "Cmd / Ctrl + Z 撤销"],
   },
   {
     title: "端点、中点与交点捕捉",
@@ -60,7 +66,6 @@ const steps = [
       "点击采用高亮点的精确坐标，扫描图片可手动选点。",
       "工具栏「捕捉」可开关，按住 Alt 临时自由选点。",
     ],
-    keys: ["S 捕捉开关"],
   },
   {
     title: "Shift 智慧轨迹",
@@ -70,7 +75,6 @@ const steps = [
       "紫色虚线帮助对齐，菱形标出最终正交落点。",
       "点击确认，Esc 取消。本段最多保留 4 个参考点。",
     ],
-    keys: ["Shift 正交追踪", "Alt 沿正交方向自由选点"],
   },
   {
     title: "保存项目与导出",
@@ -80,7 +84,6 @@ const steps = [
       "「导出」生成标注 PDF，或尺寸与备注的 CSV 清单。",
       "自动恢复保留最近一份工作，换图纸前请保存项目。",
     ],
-    keys: ["Cmd / Ctrl + S 保存项目"],
   },
 ];
 
@@ -269,7 +272,13 @@ function Illustration({ step }: { step: number }) {
   );
 }
 
-export default function QuickStart({ onClose }: { onClose: () => void }) {
+export default function QuickStart({
+  onClose,
+  shortcutHint,
+}: {
+  onClose: () => void;
+  shortcutHint: (id: CommandId) => string;
+}) {
   const language = useLanguage();
   const [step, setStep] = useState(0);
   const [hideOnLaunch, setHideOnLaunch] = useState(
@@ -288,7 +297,7 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
         previousFocus.current instanceof HTMLElement &&
         previousFocus.current.isConnected
       )
-        previousFocus.current.focus();
+        previousFocus.current.focus({ preventScroll: true });
     };
   }, []);
 
@@ -364,8 +373,15 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
             <option value="zh">简体中文</option>
             <option value="en">English</option>
           </select>
-          <button className="guide-skip" onClick={onClose}>
+          <button
+            className="guide-skip"
+            title={`${t("跳过说明")} (Esc)`}
+            onClick={onClose}
+          >
             {t("跳过说明")}
+            <kbd className="button-shortcut" aria-hidden="true">
+              Esc
+            </kbd>
           </button>
         </header>
         <div
@@ -414,9 +430,12 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
               ))}
             </ul>
             <div className="guide-shortcuts">
-              {steps[step].keys.map((key) => (
-                <kbd key={key}>{t(key)}</kbd>
+              {stepCommands[step].map((id) => (
+                <kbd key={id}>
+                  {commandLabel(id, language)} {shortcutHint(id) || t("未绑定")}
+                </kbd>
               ))}
+              {step === 4 && <kbd>{t("Shift 正交追踪")} · Alt</kbd>}
             </div>
           </div>
         </div>
@@ -442,14 +461,21 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
           </label>
           <div className="guide-actions">
             <button
+              title={`${t("上一步")} (←)`}
               onClick={() => setStep((value) => Math.max(0, value - 1))}
               disabled={step === 0}
             >
               <ChevronLeft size={15} />
               {t("上一步")}
+              <kbd className="button-shortcut" aria-hidden="true">
+                ←
+              </kbd>
             </button>
             <button
               ref={primary}
+              title={
+                step === steps.length - 1 ? t("开始使用") : `${t("下一步")} (→)`
+              }
               className="primary"
               onClick={() => {
                 if (step === steps.length - 1) onClose();
@@ -464,6 +490,9 @@ export default function QuickStart({ onClose }: { onClose: () => void }) {
               ) : (
                 <>
                   {t("下一步")}
+                  <kbd className="button-shortcut" aria-hidden="true">
+                    →
+                  </kbd>
                   <ChevronRight size={15} />
                 </>
               )}

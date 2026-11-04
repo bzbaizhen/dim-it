@@ -66,7 +66,7 @@ try {
   await page.getByRole("button", { name: "曲线长度", exact: true }).click();
   await page.getByRole("button", { name: "校准比例", exact: true }).waitFor();
   await calibrate();
-  await page.keyboard.press("l");
+  await page.keyboard.press("Digit2");
   const p = await position(270.710678, 270.710678);
   await page.mouse.move(p.x, p.y);
   await page
