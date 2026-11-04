@@ -1,3 +1,4 @@
+import { pathMidpoint } from "./curve.ts";
 import { t } from "./i18n.ts";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -19,9 +20,11 @@ export async function loadSnapIndex(
 ): Promise<SnapIndex> {
   const item = await pdf.getPage(page);
   const list = await item.getOperatorList();
+  const curves: Point[][] = [];
   return new SnapIndex(
-    extractSegments(list, pdfjs.OPS),
+    extractSegments(list, pdfjs.OPS, curves),
     item.view as [number, number, number, number],
+    curves,
   );
 }
 
@@ -152,13 +155,26 @@ export async function exportPDF(
     const radians = (angle * Math.PI) / 180;
     const cos = Math.cos(radians),
       sin = Math.sin(radians);
-    const dx = item.b.x - item.a.x,
-      dy = item.b.y - item.a.y;
-    const length = Math.hypot(dx, dy);
-    page.drawLine({ start: item.a, end: item.b, thickness: 1.2, color });
+    const path = item.path || [item.a, item.b];
+    for (let index = 1; index < path.length; index++)
+      page.drawLine({
+        start: path[index - 1],
+        end: path[index],
+        thickness: 1.2,
+        color,
+      });
     for (const point of [item.a, item.b]) {
-      const tx = length ? (-dy / length) * 5 : 0;
-      const ty = length ? (dx / length) * 5 : 5;
+      const adjacent = point === item.a ? path[1] : path[path.length - 2];
+      const tangentLength = Math.hypot(
+        point.x - adjacent.x,
+        point.y - adjacent.y,
+      );
+      const tx = tangentLength
+        ? (-(point.y - adjacent.y) / tangentLength) * 5
+        : 0;
+      const ty = tangentLength
+        ? ((point.x - adjacent.x) / tangentLength) * 5
+        : 5;
       page.drawLine({
         start: { x: point.x - tx, y: point.y - ty },
         end: { x: point.x + tx, y: point.y + ty },
@@ -171,10 +187,7 @@ export async function exportPDF(
       padding = 4;
     const width = font.widthOfTextAtSize(label, size) + padding * 2;
     const height = size + padding * 2;
-    const center = {
-      x: (item.a.x + item.b.x) / 2,
-      y: (item.a.y + item.b.y) / 2,
-    };
+    const center = pathMidpoint(path);
     const origin = {
       x: center.x - (width / 2) * cos - 4 * sin,
       y: center.y - (width / 2) * sin + 4 * cos,
@@ -206,6 +219,6 @@ export async function exportPDF(
       ),
     );
   }
-  pdf.setProducer("Dim It 0.4.1");
+  pdf.setProducer("Dim It 0.4.2");
   return pdf.save();
 }

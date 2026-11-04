@@ -15,7 +15,7 @@ Get the installer from [GitHub Releases](https://github.com/bzbaizhen/dim-it/rel
 | Windows 10 / 11 x64 | Download the `.exe` and run the installation wizard |
 | macOS Apple Silicon | Open the `.dmg` and drag Dim It into Applications   |
 
-Current version is **0.4.1**. Installers are unsigned, so your operating system may show a publisher or security warning. Check the download source. macOS has been tested on actual hardware. Windows packages are cross-built and still require Windows hardware validation. The current macOS build is ARM64.
+The current local development version is **0.4.2**. Published installers are listed in Releases. Installers are unsigned, so your operating system may show a publisher or security warning. Check the download source. macOS has been tested on actual hardware. Windows packages are cross-built and still require Windows hardware validation. The current macOS build is ARM64.
 
 Choose **English** in the language selector at the top of the window or in the startup guide. The interface switches immediately and remembers your choice. Chinese is the default. Toolbars, measurement settings, calibration dialogs, snap and SmartTrack hints, the six-step guide and native application menus support both languages. Drawing content, filenames, user notes and measurement values are preserved.
 
@@ -24,6 +24,7 @@ Choose **English** in the language selector at the top of the window or in the s
 - **Open and navigate** local PDFs and `.planmeasure` projects. Drag and drop, page selection, pan, zoom and rotation. Files are processed locally.
 - **Two-point calibration** from a known dimension and unit. Each page has its own scale. Recalibration updates measurements on that page.
 - **Length measurements and annotations** with continuous two-point picking, notes, colors, deletion, undo and redo.
+- **Arc and curve lengths** from existing vector paths. After calibration, click Curve length or press L, hover to preview the full highlighted path, then click to record. Closed curves measure their full perimeter.
 - **Metric and imperial units** including mm, inches, feet and fractional feet/inches to the nearest 1/16 inch.
 - **Object snapping** to vector line endpoints, midpoints and finite-segment intersections, with green markers and point-type labels.
 - **Shift SmartTrack** for horizontal or vertical measurement alignment using nearby reference points and purple tracking guides.
@@ -38,6 +39,16 @@ Choose **English** in the language selector at the top of the window or in the s
 4. Use Save project to save editable work, or Export for PDF and CSV output.
 
 The workspace screenshot above uses a generated demo with a 6,000 mm reference and a 12,000 mm measurement.
+
+### Arc and curve length
+
+Choose Curve length, hover over an existing vector arc or curve to preview its full path and length, then click to record it. Consecutive Bézier segments are measured together. Straight lines, disconnected subpaths and PDF drawing-object boundaries end the chain. Closed curves measure their full perimeter. Zoom and rotation preserve the measured dimension.
+
+Lengths follow the actual PDF path using adaptive numerical subdivision. Scanned images and curves already converted into straight polylines cannot be detected automatically. Picking selects the whole curve chain.
+
+![Whole-path curve measurement](docs/images/curve-length.png)
+
+Curve annotations support notes, colors, undo, recalibration and PDF / CSV export. Projects containing curves use v2 and require version 0.4.2 or later. Version 0.4.2 also reads existing v1 projects.
 
 ### Highlighted snapping
 
@@ -63,6 +74,7 @@ The six-step illustrated guide appears on launch by default. Click Skip guide or
 | ---------------------------------------- | ----------------------------------------- |
 | Open / save project                      | Cmd / Ctrl + O / S                        |
 | Calibrate / measure                      | C / M                                     |
+| Curve length                             | L                                         |
 | Select / pan                             | V / H                                     |
 | Temporary pan                            | Space + drag, or middle mouse button      |
 | Zoom                                     | Cmd / Ctrl + wheel, or + / -              |
@@ -79,7 +91,7 @@ Windows also supports Ctrl + Y for redo.
 - Automatic snapping uses vector straight lines and straight contour edges. Scanned images support manual calibration and picking.
 - Local recovery retains the most recent work. Save a `.planmeasure` project before switching drawings.
 - Exported PDF dimensions are drawn lines and text. Use the project file for continued editing. Notes are included in project and CSV files.
-- Unlock encrypted PDFs in a reader before opening. The current measurement tool measures two-point lengths.
+- Unlock encrypted PDFs in a reader before opening. Measurement tools support two-point lengths and whole vector-curve lengths.
 - The repository and installers contain no customer drawings, customer projects, real drawing screenshots or local work data. Documentation images use generated geometry and the built-in demo.
 
 ## Development
@@ -101,10 +113,10 @@ npm run package:mac
 npm run package:win
 ```
 
-Test entry points generate synthetic geometric PDFs and a blank password test fixture. Generated fixtures are Git-ignored. UI tests use isolated temporary profiles and write to the ignored `test-results/` directory. Packages are written to `release/0.4.1/`. Building the macOS package requires macOS.
+Test entry points generate synthetic geometric PDFs and a blank password test fixture. Generated fixtures are Git-ignored. UI tests use isolated temporary profiles and write to the ignored `test-results/` directory. Packages are written to `release/0.4.2/`. Building the macOS package requires macOS.
 
 ## Implementation and status
 
 React / TypeScript, PDF.js, pdf-lib and Electron. Points use native PDF coordinates, calibration stores millimeters per PDF coordinate unit, and display/export convert units. Existing PlanMeasure `.planmeasure` projects and local recovery data remain compatible.
 
-Version 0.4.1 has passed a production build, 11 core tests and Electron workflow checks on Apple Silicon macOS, covering calibration, units, save/reopen, export, snapping, SmartTrack, quick start and failure recovery. Windows hardware validation remains open. The default source branch is `main`. Download binaries from the corresponding Release.
+Version 0.4.2 has passed a production build, 14 core tests and Electron workflow checks on Apple Silicon macOS, covering curve length, calibration, units, save/reopen, export, snapping, SmartTrack, quick start and failure recovery. Windows hardware validation remains open. The default source branch is `main`. Download binaries from the corresponding Release.

@@ -1519,3 +1519,15 @@ html[lang="en"] .guide-topics > button {
 html[lang="en"] .guide-content-heading h3 {
   font-size: 18px;
 }
+
+.dimension polyline {
+  fill: none;
+}
+.stage.curve,
+.stage.curve .dimension {
+  cursor: crosshair;
+}
+.toolbar {
+  overflow-x: auto;
+  flex-shrink: 0;
+}

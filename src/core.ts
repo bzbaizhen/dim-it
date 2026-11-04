@@ -1,3 +1,4 @@
+import { pathLength } from "./curve.ts";
 import { t } from "./i18n.ts";
 export type Unit = "mm" | "in" | "ft" | "ft-in";
 export type Point = { x: number; y: number };
@@ -12,6 +13,7 @@ export type Measurement = {
   page: number;
   a: Point;
   b: Point;
+  path?: Point[];
   note: string;
   color: string;
 };
@@ -107,7 +109,9 @@ export function measurementMM(
 ): number | null {
   const scale = data.scales[measurement.page];
   return scale
-    ? distance(measurement.a, measurement.b) * scale.mmPerPoint
+    ? (measurement.path
+        ? pathLength(measurement.path)
+        : distance(measurement.a, measurement.b)) * scale.mmPerPoint
     : null;
 }
 
@@ -150,6 +154,7 @@ export function validateData(value: unknown, pageCount: number): ProjectData {
   const ids = new Set<string>();
   if (data.measurements.length > 100000)
     throw new Error(t("项目标注数量超出限制"));
+  let totalPathPoints = 0;
   for (const measurement of data.measurements) {
     if (
       !measurement ||
@@ -164,6 +169,20 @@ export function validateData(value: unknown, pageCount: number): ProjectData {
       !scales[measurement.page]
     )
       throw new Error(t("项目标注数据无效"));
+    if (measurement.path !== undefined) {
+      const path = measurement.path;
+      if (
+        !Array.isArray(path) ||
+        path.length < 2 ||
+        path.length > 1000000 ||
+        !path.every(isPoint) ||
+        distance(path[0], measurement.a) > 1e-6 ||
+        distance(path[path.length - 1], measurement.b) > 1e-6 ||
+        pathLength(path) <= 0 ||
+        (totalPathPoints += path.length) > 1000000
+      )
+        throw new Error(t("项目曲线数据无效"));
+    }
     ids.add(measurement.id);
   }
   for (const [page, rotation] of Object.entries(data.rotations)) {

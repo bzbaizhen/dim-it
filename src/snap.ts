@@ -1,3 +1,4 @@
+import { flattenBezier, pathLength } from "./curve.ts";
 import type { Point } from "./core.ts";
 
 export type Segment = { a: Point; b: Point };
@@ -55,7 +56,11 @@ function multiply(a: Matrix, b: Matrix): Matrix {
   ];
 }
 
-export function extractSegments(list: OperatorList, ops: Operators): Segment[] {
+export function extractSegments(
+  list: OperatorList,
+  ops: Operators,
+  curves?: Point[][],
+): Segment[] {
   const segments: Segment[] = [];
   let matrix: Matrix = [1, 0, 0, 1, 0, 0];
   const stack: Matrix[] = [];
@@ -106,25 +111,48 @@ export function extractSegments(list: OperatorList, ops: Operators): Segment[] {
         ops.closeFillStroke,
         ops.closeEOFillStroke,
       ].includes(args[0] as number);
+      let curve: Point[] = [];
+      const finishCurve = () => {
+        if (curve.length > 1 && pathLength(curve) > 1e-7) curves?.push(curve);
+        curve = [];
+      };
       let current: Point | null = null;
       let start: Point | null = null;
       for (let offset = 0; offset < path.length;) {
         const command = path[offset++];
         if (command === 0) {
+          finishCurve();
           if (closesSubpaths && current && start) append(current, start);
           current = start = transform(path[offset++], path[offset++]);
         } else if (command === 1) {
+          finishCurve();
           const next = transform(path[offset++], path[offset++]);
           if (current) append(current, next);
           current = next;
         } else if (command === 2 || command === 3) {
-          offset += command === 2 ? 4 : 2;
-          current = transform(path[offset++], path[offset++]);
+          const controls: Point[] = [];
+          for (let index = 0; index < (command === 2 ? 3 : 2); index++)
+            controls.push(transform(path[offset++], path[offset++]));
+          if (
+            curves &&
+            current &&
+            [current, ...controls].every(
+              (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+            )
+          ) {
+            const points = flattenBezier([current, ...controls]);
+            if (!curve.length) curve.push(current);
+            for (let index = 1; index < points.length; index++)
+              curve.push(points[index]);
+          }
+          current = controls[controls.length - 1];
         } else if (command === 4) {
+          finishCurve();
           if (current && start) append(current, start);
           current = start;
         } else break;
       }
+      finishCurve();
       if ((closesSubpaths || args[0] === ops.closeStroke) && current && start)
         append(current, start);
     }
@@ -173,12 +201,14 @@ export function intersection(first: Segment, second: Segment): Point | null {
 
 export class SnapIndex {
   readonly segments: Segment[];
+  readonly curves: CurveIndex;
   private cells = new Map<string, number[]>();
   private longSegments: number[] = [];
   private cellSize: number;
   private bounds: Box;
 
-  constructor(segments: Segment[], bounds: Box) {
+  constructor(segments: Segment[], bounds: Box, curves: Point[][] = []) {
+    this.curves = new CurveIndex(curves, bounds);
     this.bounds = bounds;
     const [left, bottom, right, top] = bounds;
     this.segments = segments.filter(
@@ -289,5 +319,86 @@ export class SnapIndex {
       }
     }
     return hit;
+  }
+}
+
+export class CurveIndex {
+  private cells = new Map<string, number[]>();
+  private longCurves: number[] = [];
+  readonly paths: Point[][];
+  private boxes: Box[];
+  private cellSize: number;
+  constructor(paths: Point[][], bounds: Box) {
+    this.paths = paths;
+    this.cellSize = Math.max(
+      1,
+      Math.max(bounds[2] - bounds[0], bounds[3] - bounds[1]) / 64,
+    );
+    this.boxes = paths.map((path) => {
+      let left = Infinity,
+        bottom = Infinity,
+        right = -Infinity,
+        top = -Infinity;
+      for (const p of path) {
+        left = Math.min(left, p.x);
+        bottom = Math.min(bottom, p.y);
+        right = Math.max(right, p.x);
+        top = Math.max(top, p.y);
+      }
+      return [left, bottom, right, top];
+    });
+    this.boxes.forEach(([left, bottom, right, top], id) => {
+      const x1 = Math.floor(Math.max(left, bounds[0]) / this.cellSize),
+        x2 = Math.floor(Math.min(right, bounds[2]) / this.cellSize);
+      const y1 = Math.floor(Math.max(bottom, bounds[1]) / this.cellSize),
+        y2 = Math.floor(Math.min(top, bounds[3]) / this.cellSize);
+      if ((x2 - x1 + 1) * (y2 - y1 + 1) > 64) {
+        this.longCurves.push(id);
+        return;
+      }
+      for (let x = x1; x <= x2; x++)
+        for (let y = y1; y <= y2; y++) {
+          const key = `${x},${y}`;
+          const bucket = this.cells.get(key);
+          if (bucket) bucket.push(id);
+          else this.cells.set(key, [id]);
+        }
+    });
+  }
+  nearest(point: Point, radius: number): Point[] | null {
+    if (!Number.isFinite(radius) || radius <= 0) return null;
+    const ids = new Set(this.longCurves);
+    for (
+      let x = Math.floor((point.x - radius) / this.cellSize);
+      x <= Math.floor((point.x + radius) / this.cellSize);
+      x++
+    )
+      for (
+        let y = Math.floor((point.y - radius) / this.cellSize);
+        y <= Math.floor((point.y + radius) / this.cellSize);
+        y++
+      )
+        for (const id of this.cells.get(`${x},${y}`) || []) ids.add(id);
+    let best = radius,
+      result: Point[] | null = null;
+    for (const id of ids) {
+      const box = this.boxes[id];
+      if (
+        point.x < box[0] - best ||
+        point.x > box[2] + best ||
+        point.y < box[1] - best ||
+        point.y > box[3] + best
+      )
+        continue;
+      const path = this.paths[id];
+      for (let i = 1; i < path.length; i++) {
+        const delta = segmentDistance(point, { a: path[i - 1], b: path[i] });
+        if (delta <= best) {
+          best = delta;
+          result = path;
+        }
+      }
+    }
+    return result;
   }
 }

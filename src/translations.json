@@ -221,5 +221,18 @@
   "项目旋转设置无效": "Invalid project rotation settings",
   "请先使用 PDF 阅读器解锁文件，再打开": "Unlock the PDF in a reader before opening it",
   "语言偏好保存失败，下次启动可能恢复中文": "Could not save the language preference. The next launch may use Chinese.",
-  "{0} 条测量": "Measurements {0}"
+  "{0} 条测量": "Measurements {0}",
+  "曲线长度": "Curve length",
+  "曲线长度 L": "Curve length L",
+  "项目曲线数据无效": "Invalid project curve data",
+  "未选中矢量曲线，请靠近曲线后点击": "No vector curve selected. Move closer to the curve and click.",
+  "此页没有可测量的矢量曲线，扫描图或折线无法自动识别": "No measurable vector curves on this page. Scans and polylines cannot be detected automatically.",
+  "曲线过于复杂，无法保存": "The curve is too complex to save.",
+  "靠近矢量曲线高亮整段，点击记录长度 · L 曲线测量": "Hover over a vector curve to highlight its full path. Click to measure · L Curve length",
+  "正在准备矢量曲线": "Preparing vector curves",
+  "可测量曲线 {0} 段": "Measurable curves {0}",
+  "已选曲线，沿曲线路径计算长度": "Curve selected. Length follows the curve path.",
+  "点击「曲线长度」后，靠近矢量弧线或曲线，整段高亮后点击记录。": "Click Curve length, hover over a vector arc or curve, then click the highlighted path to measure.",
+  "M 测量 / L 曲线": "M Length / L Curve",
+  "点击「长度测量」连续选两点，右侧切换单位并自动换算。": "Click Length to pick pairs of points. Switch units on the right to convert dimensions."
 }

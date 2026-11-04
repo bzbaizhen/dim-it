@@ -1,3 +1,4 @@
+import { pathLength, pathMidpoint } from "./curve.ts";
 import { t, useLanguage, setLanguage } from "./i18n.ts";
 import {
   useCallback,
@@ -26,6 +27,7 @@ import {
   Redo2,
   RotateCw,
   Ruler,
+  Spline,
   Save,
   ScanLine,
   ShieldCheck,
@@ -63,7 +65,7 @@ import {
   type TrackHit,
 } from "./snap";
 
-type Tool = "select" | "pan" | "calibrate" | "measure";
+type Tool = "select" | "pan" | "calibrate" | "measure" | "curve";
 type DocumentState = { pdf: PDFDocumentProxy; bytes: Uint8Array; name: string };
 const unitLabels: Record<Unit, string> = {
   mm: "毫米 mm",
@@ -156,6 +158,7 @@ export default function App() {
   const [viewport, setViewport] = useState<PageViewport | null>(null);
   const [rendered, setRendered] = useState(false);
   const [tool, setTool] = useState<Tool>("pan");
+  const [curveHit, setCurveHit] = useState<Point[] | null>(null);
   const [anchor, setAnchor] = useState<Point | null>(null);
   const [cursor, setCursor] = useState<Point | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -394,6 +397,7 @@ export default function App() {
   useEffect(() => {
     setAnchor(null);
     setCursor(null);
+    setCurveHit(null);
     lastPointer.current = null;
   }, [page, tool, rotation, document]);
 
@@ -421,7 +425,8 @@ export default function App() {
   }, [trackingCandidate, trackingActive, smartPoints]);
 
   useEffect(() => {
-    if (tool === "measure" && !scale) setTool("calibrate");
+    if ((tool === "measure" || tool === "curve") && !scale)
+      setTool("calibrate");
   }, [tool, scale]);
 
   useEffect(() => {
@@ -430,6 +435,7 @@ export default function App() {
 
   useEffect(() => {
     setSnapHit(null);
+    setCurveHit(null);
     setTrackHit(null);
     setTrackingCandidate(null);
   }, [
@@ -467,7 +473,10 @@ export default function App() {
           pdf: document.pdf,
           page,
           index,
-          status: index.segments.length ? "ready" : "empty",
+          status:
+            index.segments.length || index.curves.paths.length
+              ? "ready"
+              : "empty",
         });
       })
       .catch(() => {
@@ -659,7 +668,7 @@ export default function App() {
       if (name.toLowerCase().endsWith(".planmeasure")) {
         const project = JSON.parse(new TextDecoder().decode(bytes));
         if (
-          project.version !== 1 ||
+          ![1, 2].includes(project.version) ||
           typeof project.pdf !== "string" ||
           typeof project.filename !== "string"
         )
@@ -749,7 +758,7 @@ export default function App() {
     const savedRevision = revision.current;
     try {
       const content = JSON.stringify({
-        version: 1,
+        version: data.measurements.some((item) => item.path) ? 2 : 1,
         filename: document.name,
         pdf: bytesToBase64(document.bytes),
         data,
@@ -801,7 +810,7 @@ export default function App() {
   }
 
   function chooseTool(next: Tool) {
-    if (next === "measure" && !scale) {
+    if ((next === "measure" || next === "curve") && !scale) {
       setTool("calibrate");
       notify(t("请先选取已知尺寸的两个端点，校准当前页"));
       return;
@@ -924,6 +933,7 @@ export default function App() {
     if ((tool === "pan" || space || event.button === 1) && stage.current) {
       event.preventDefault();
       setSnapHit(null);
+      setCurveHit(null);
       setTrackingCandidate(null);
       setTrackHit(null);
       drag.current = {
@@ -943,6 +953,42 @@ export default function App() {
     }
     if (snapEnabled && !event.altKey && snapStatus === "loading") {
       notify(t("正在准备矢量捕捉，请稍后选点，也可按住 Alt 自由选点"));
+      return;
+    }
+    if (tool === "curve") {
+      const hit = curveAt(event);
+      if (!hit) {
+        notify(
+          t(
+            snapContext?.index?.curves.paths.length
+              ? "未选中矢量曲线，请靠近曲线后点击"
+              : "此页没有可测量的矢量曲线，扫描图或折线无法自动识别",
+          ),
+        );
+        return;
+      }
+      if (!scale) return;
+      if (
+        data.measurements.reduce(
+          (sum, item) => sum + (item.path?.length || 0),
+          hit.length,
+        ) > 1000000
+      ) {
+        notify(t("曲线过于复杂，无法保存"), true);
+        return;
+      }
+      const item: Measurement = {
+        id: crypto.randomUUID(),
+        page,
+        a: hit[0],
+        b: hit[hit.length - 1],
+        path: hit,
+        color,
+        note: "",
+      };
+      change({ ...data, measurements: [...data.measurements, item] });
+      setSelected(item.id);
+      setCurveHit(null);
       return;
     }
     const point = toPDF(event);
@@ -977,6 +1023,21 @@ export default function App() {
     setCursor(null);
   }
 
+  function curveAt(event: {
+    clientX: number;
+    clientY: number;
+  }): Point[] | null {
+    if (!viewport || !paper.current || snapStatus !== "ready") return null;
+    const box = paper.current.getBoundingClientRect();
+    const [x, y] = viewport.convertToPdfPoint(
+      event.clientX - box.left,
+      event.clientY - box.top,
+    );
+    return (
+      snapContext?.index?.curves.nearest({ x, y }, 10 / viewport.scale) || null
+    );
+  }
+
   function pointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     setShiftPressed(event.shiftKey);
     setAltPressed(event.altKey);
@@ -986,7 +1047,8 @@ export default function App() {
         drag.current.left - event.clientX + drag.current.x;
       stage.current.scrollTop =
         drag.current.top - event.clientY + drag.current.y;
-    } else setCursor(toPDF(event));
+    } else if (tool === "curve") setCurveHit(curveAt(event));
+    else setCursor(toPDF(event));
   }
 
   function calibrate(event: React.FormEvent) {
@@ -1037,6 +1099,7 @@ export default function App() {
         return;
       }
       if (event.key === "Escape") {
+        setCurveHit(null);
         setAnchor(null);
         setSnapHit(null);
         setSmartPoints([]);
@@ -1089,6 +1152,7 @@ export default function App() {
         h: "pan",
         c: "calibrate",
         m: "measure",
+        l: "curve",
       };
       if (tools[event.key.toLowerCase()])
         chooseTool(tools[event.key.toLowerCase()]);
@@ -1150,14 +1214,16 @@ export default function App() {
     stroke: string,
     id: string,
     preview = false,
+    path?: Point[],
   ) {
     const start = screen(a),
       end = screen(b);
-    const length = distance(start, end);
-    const dx = length ? (-(end.y - start.y) / length) * 6 : 0;
-    const dy = length ? ((end.x - start.x) / length) * 6 : 6;
+
     const width = Math.max(48, text.length * 7 + 16);
-    const center = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    const points = path ? path.map(screen) : [start, end];
+    const center = path
+      ? screen(pathMidpoint(path))
+      : { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
     return (
       <g
         key={id}
@@ -1175,38 +1241,42 @@ export default function App() {
           setAnchor(null);
         }}
       >
-        <line
+        <polyline
           className="dimension-hit"
-          x1={start.x}
-          y1={start.y}
-          x2={end.x}
-          y2={end.y}
+          points={points.map((point) => `${point.x},${point.y}`).join(" ")}
         />
-        <line
+        <polyline
           className="dimension-line"
-          x1={start.x}
-          y1={start.y}
-          x2={end.x}
-          y2={end.y}
+          points={points.map((point) => `${point.x},${point.y}`).join(" ")}
           strokeDasharray={preview ? "5 4" : undefined}
         />
-        {[start, end].map((point, index) => (
-          <g key={index}>
-            <line
-              className="dimension-line"
-              x1={point.x - dx}
-              y1={point.y - dy}
-              x2={point.x + dx}
-              y2={point.y + dy}
-            />
-            <circle
-              cx={point.x}
-              cy={point.y}
-              r={selected === id ? 4 : 2.5}
-              fill="currentColor"
-            />
-          </g>
-        ))}
+        {[start, end].map((point, index) => {
+          const adjacent = index === 0 ? points[1] : points[points.length - 2];
+          const tangentLength = distance(point, adjacent);
+          const dx = tangentLength
+            ? (-(point.y - adjacent.y) / tangentLength) * 6
+            : 0;
+          const dy = tangentLength
+            ? ((point.x - adjacent.x) / tangentLength) * 6
+            : 6;
+          return (
+            <g key={index}>
+              <line
+                className="dimension-line"
+                x1={point.x - dx}
+                y1={point.y - dy}
+                x2={point.x + dx}
+                y2={point.y + dy}
+              />
+              <circle
+                cx={point.x}
+                cy={point.y}
+                r={selected === id ? 4 : 2.5}
+                fill="currentColor"
+              />
+            </g>
+          );
+        })}
         <rect
           className="dimension-label"
           x={center.x - width / 2}
@@ -1222,21 +1292,24 @@ export default function App() {
     );
   }
 
-  const instructions = trackingActive
-    ? trackHit
-      ? t("已对齐参考点，点击确认正交落点")
-      : t("正交选点 · 悬停捕捉点获取智慧轨迹")
-    : tool === "calibrate"
-      ? anchor
-        ? t("选择已知尺寸的第二个端点")
-        : t("选择已知尺寸的第一个端点")
-      : tool === "measure"
-        ? anchor
-          ? t("选择第二点，完成一次测量")
-          : t("选择第一点，开始测量")
-        : tool === "pan"
-          ? t("拖动画布平移，⌘ / Ctrl + 滚轮缩放")
-          : t("点击标注以选择，可编辑备注或删除");
+  const instructions =
+    tool === "curve"
+      ? t("靠近矢量曲线高亮整段，点击记录长度 · L 曲线测量")
+      : trackingActive
+        ? trackHit
+          ? t("已对齐参考点，点击确认正交落点")
+          : t("正交选点 · 悬停捕捉点获取智慧轨迹")
+        : tool === "calibrate"
+          ? anchor
+            ? t("选择已知尺寸的第二个端点")
+            : t("选择已知尺寸的第一个端点")
+          : tool === "measure"
+            ? anchor
+              ? t("选择第二点，完成一次测量")
+              : t("选择第一点，开始测量")
+            : tool === "pan"
+              ? t("拖动画布平移，⌘ / Ctrl + 滚轮缩放")
+              : t("点击标注以选择，可编辑备注或删除");
 
   return (
     <div
@@ -1276,7 +1349,7 @@ export default function App() {
             <Ruler size={23} />
           </span>
           <strong>Dim It</strong>
-          <span className="version">0.4.1</span>
+          <span className="version">0.4.2</span>
         </div>
         <div className="document-title" title={document?.name}>
           {document ? (
@@ -1367,6 +1440,15 @@ export default function App() {
           >
             <Ruler size={18} />
             {t("长度测量")}
+          </button>
+          <button
+            className={tool === "curve" ? "active" : ""}
+            onClick={() => chooseTool("curve")}
+            disabled={!document}
+            title={t("曲线长度 L")}
+          >
+            <Spline size={18} />
+            {t("曲线长度")}
           </button>
         </div>
         <span className="divider" />
@@ -1493,15 +1575,19 @@ export default function App() {
                   "端点、直线中点和有限线段交点。按住 Alt 临时自由选点。",
                 )}
               >
-                {!snapEnabled
-                  ? t("自由选点")
-                  : snapStatus === "loading"
-                    ? t("矢量捕捉准备中")
-                    : snapStatus === "empty"
-                      ? t("此页无矢量直线 · 手动选点")
-                      : snapStatus === "error"
-                        ? t("捕捉解析失败 · 手动选点")
-                        : t("端点 / 中点 / 交点捕捉")}
+                {tool === "curve"
+                  ? snapStatus === "loading"
+                    ? t("正在准备矢量曲线")
+                    : t`可测量曲线 ${snapContext?.index?.curves.paths.length || 0} 段`
+                  : !snapEnabled
+                    ? t("自由选点")
+                    : snapStatus === "loading"
+                      ? t("矢量捕捉准备中")
+                      : snapStatus === "empty"
+                        ? t("此页无矢量直线 · 手动选点")
+                        : snapStatus === "error"
+                          ? t("捕捉解析失败 · 手动选点")
+                          : t("端点 / 中点 / 交点捕捉")}
               </span>
             )}
             <span className="canvas-bar-right">
@@ -1565,6 +1651,7 @@ export default function App() {
                       onPointerLeave={() => {
                         if (!drag.current) {
                           setCursor(null);
+                          setCurveHit(null);
                           setSnapHit(null);
                           setTrackingCandidate(null);
                           setTrackHit(null);
@@ -1666,6 +1753,22 @@ export default function App() {
                             )}
                         </g>
                       )}
+                      {tool === "curve" &&
+                        curveHit &&
+                        scale &&
+                        dimension(
+                          curveHit[0],
+                          curveHit[curveHit.length - 1],
+                          formatDistance(
+                            pathLength(curveHit) * scale.mmPerPoint,
+                            data.unit,
+                            data.precision,
+                          ),
+                          color,
+                          "curve-preview",
+                          true,
+                          curveHit,
+                        )}
                       {pageMeasurements.map((item) =>
                         dimension(
                           item.a,
@@ -1677,6 +1780,8 @@ export default function App() {
                           ),
                           item.color,
                           item.id,
+                          false,
+                          item.path,
                         ),
                       )}
                       {anchor &&
@@ -2070,7 +2175,10 @@ export default function App() {
                           data.precision,
                         )}
                       </strong>
-                      <small>{item.note || t("长度测量")}</small>
+                      <small>
+                        {item.note ||
+                          (item.path ? t("曲线长度") : t("长度测量"))}
+                      </small>
                     </span>
                     <Ruler size={14} />
                   </button>
