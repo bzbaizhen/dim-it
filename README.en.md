@@ -1,8 +1,10 @@
-# Dim It - PDF Drawing Workbench
+# Dim It — PDF Measurement and Annotation Tool
 
 <img src="public/dim-it-logo.png" alt="Dim It D! logo" width="96" height="96" />
 
-**Offline PDF drawing measurement and annotation.** Open a drawing, calibrate it using a known dimension, then measure lines, curves and mark regions. Built for everyday architectural, interior and engineering drawing checks.
+**Offline PDF measurement and annotation for Windows and macOS.** Open a drawing, calibrate it using a known dimension, then measure lines, curves and mark regions. Built for everyday architectural, interior and engineering drawing checks.
+
+**Use cases.** Check dimensions on architectural floor plans, measure distances on interior construction PDFs, calibrate PDF scale, measure arc and curve lengths, and mark drawing regions with color.
 
 *Damn it. Dim it.*
 
@@ -21,7 +23,7 @@ Choose the installer for your platform from Releases. The current version is **0
 
 The Mac app has been run on Apple Silicon hardware. The Windows installer is cross-built and awaits Windows hardware validation. Each Release includes `SHA256SUMS.txt` for checking downloaded files.
 
-## Start in a minute
+## How to calibrate PDF scale and measure drawings
 
 1. **Open a drawing.** Click Open or drag a PDF into the window. You can also try the built-in demo.
 2. **Calibrate.** Press **4**, pick both ends of a known dimension, and enter its actual length and unit, such as `6000` mm.
@@ -42,7 +44,7 @@ Press **3** to start a region fill directly. Switch **简体中文 / English** a
 | Annotation editing | Add notes, change colors, select, delete, undo and redo |
 | Faster operation | Customize shortcuts and see current bindings in button tooltips and native menus |
 
-### Measure vector curves
+### Measure PDF arc and curve lengths
 
 After calibration, press **2**, hover to preview the highlighted curve, then click to record its full length.
 

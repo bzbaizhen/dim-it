@@ -1,8 +1,12 @@
-# Dim It - PDF 图纸工作台
+# Dim It — PDF 图纸测量与标注工具 | PDF Measurement Tool
 
 <img src="public/dim-it-logo.png" alt="Dim It D! Logo" width="96" height="96" />
 
 **离线 PDF 图纸测量与标注工具。** 打开图纸，用已知尺寸校准比例，再测量直线、曲线并标记区域。适合建筑、室内与工程图纸的日常尺寸复核。
+
+An offline PDF measurement and annotation tool for architectural drawings on Windows and macOS.
+
+**适用场景**。建筑平面图尺寸复核、室内施工图 PDF 测距、图纸比例校准、弧线与曲线路径测长，以及图纸区域颜色标记。
 
 *Damn it. Dim it.*
 
@@ -21,7 +25,7 @@
 
 Mac 版本已在 Apple Silicon 上实际运行验证。Windows 安装包已交叉构建，Windows 实机验收待完成。每个 Release 附有 `SHA256SUMS.txt`，可用于核对下载文件。
 
-## 一分钟上手
+## 如何校准 PDF 图纸比例并测量尺寸
 
 1. **打开图纸**。点击打开，或将 PDF 拖入窗口。也可先打开内置演示图。
 2. **校准比例**。按 **4**，选取已知尺寸的两个端点，输入实际长度与单位，例如 `6000` mm。
@@ -42,7 +46,7 @@ Mac 版本已在 Apple Silicon 上实际运行验证。Windows 安装包已交�
 | 标注编辑 | 备注、颜色、选择、删除、撤销和重做 |
 | 操作效率 | 可自定义快捷键，按钮提示与原生菜单同步显示当前键位 |
 
-### 测量矢量曲线
+### 测量 PDF 弧线与曲线长度
 
 校准后按 **2**，靠近曲线预览整段高亮，再点击记录长度。
 
