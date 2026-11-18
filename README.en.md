@@ -8,22 +8,20 @@
 
 *Damn it. Dim it.*
 
-English · [简体中文](README.md) · [Download the latest release](https://github.com/bzbaizhen/dim-it/releases/latest) · [Detailed usage](docs/usage.en.md)
+English · [简体中文](README.md) · [Download Dim It](https://github.com/bzbaizhen/dim-it/releases/tag/v0.5.0-beta.9) · [Detailed usage](docs/usage.en.md)
 
 ![Dim It measurement workspace](docs/images/measurement-en.png)
 
 ## Download and install
 
-Choose the installer for your platform from Releases. The current stable version is **0.4.3**. [Download the latest release](https://github.com/bzbaizhen/dim-it/releases/latest)
+The primary download is **0.5.0-beta.9 (prerelease)**, which adds text markup, revision clouds and configurable snaps. [Release notes](https://github.com/bzbaizhen/dim-it/releases/tag/v0.5.0-beta.9)
 
-[Try 0.5.0-beta.9](https://github.com/bzbaizhen/dim-it/releases/tag/v0.5.0-beta.9) for text markup, revision clouds and configurable snaps.
-
-| Platform | Installation | Signing status |
+| Platform | Download | Installation and signing |
 | --- | --- | --- |
-| macOS Apple Silicon (ARM64) | Open the `.dmg` and drag Dim It into Applications | Developer ID signed and notarized by Apple |
-| Windows 10 / 11 x64 | Run the `.exe` wizard and choose an installation location | Unsigned, so Windows may show a security warning |
+| macOS Apple Silicon (ARM64) | [Download DMG](https://github.com/bzbaizhen/dim-it/releases/download/v0.5.0-beta.9/DimIt-0.5.0-beta.9-mac-arm64.dmg) | Open the DMG and drag Dim It into Applications. Developer ID signed and notarized by Apple. |
+| Windows 10 / 11 x64 | [Download EXE](https://github.com/bzbaizhen/dim-it/releases/download/v0.5.0-beta.9/DimIt-0.5.0-beta.9-win-x64.exe) | Run the installer. Windows may show a warning for the unsigned package. |
 
-The Mac app has been run on Apple Silicon hardware. The Windows installer is cross-built and awaits Windows hardware validation. Each Release includes `SHA256SUMS.txt` for checking downloaded files.
+The Mac app has been tested on Apple Silicon hardware. The Windows installer is cross-built and awaits Windows hardware validation. [SHA-256 checksums](https://github.com/bzbaizhen/dim-it/releases/download/v0.5.0-beta.9/SHA256SUMS.txt) · [Download stable 0.4.3](https://github.com/bzbaizhen/dim-it/releases/tag/v0.4.3)
 
 ## How to calibrate PDF scale and measure drawings
 

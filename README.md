@@ -10,22 +10,20 @@ An offline PDF measurement and annotation tool for architectural drawings on Win
 
 *Damn it. Dim it.*
 
-[English](README.en.md) · 简体中文 · [下载最新版本](https://github.com/bzbaizhen/dim-it/releases/latest) · [详细使用说明](docs/usage.md)
+[English](README.en.md) · 简体中文 · [下载 Dim It](https://github.com/bzbaizhen/dim-it/releases/tag/v0.5.0-beta.9) · [详细使用说明](docs/usage.md)
 
 ![Dim It 测量工作区](docs/images/measurement.png)
 
 ## 下载与安装
 
-在 Releases 下载对应系统的安装包。当前正式版为 **0.4.3**。[下载最新版本](https://github.com/bzbaizhen/dim-it/releases/latest)
+主下载版本为 **0.5.0-beta.9（预发布）**，包含文字批注、修订云线和可选捕捉。[查看发布说明](https://github.com/bzbaizhen/dim-it/releases/tag/v0.5.0-beta.9)
 
-[试用 0.5.0-beta.9](https://github.com/bzbaizhen/dim-it/releases/tag/v0.5.0-beta.9)，包含文字批注、修订云线和可选捕捉。
-
-| 系统 | 安装方式 | 签名状态 |
+| 系统 | 下载 | 安装与签名 |
 | --- | --- | --- |
-| macOS Apple Silicon（ARM64） | 打开 `.dmg`，将 Dim It 拖入 Applications | Developer ID 签名，已通过 Apple 公证 |
-| Windows 10 / 11 x64 | 运行 `.exe` 安装向导，可选择安装位置 | 尚未签名，系统可能显示安全提示 |
+| macOS Apple Silicon（ARM64） | [下载 DMG](https://github.com/bzbaizhen/dim-it/releases/download/v0.5.0-beta.9/DimIt-0.5.0-beta.9-mac-arm64.dmg) | 打开 DMG，将 Dim It 拖入 Applications。已通过 Developer ID 签名和 Apple 公证。 |
+| Windows 10 / 11 x64 | [下载 EXE](https://github.com/bzbaizhen/dim-it/releases/download/v0.5.0-beta.9/DimIt-0.5.0-beta.9-win-x64.exe) | 运行安装向导。安装包未签名，系统可能显示安全提示。 |
 
-Mac 版本已在 Apple Silicon 上实际运行验证。Windows 安装包已交叉构建，Windows 实机验收待完成。每个 Release 附有 `SHA256SUMS.txt`，可用于核对下载文件。
+Mac 版本已在 Apple Silicon 上实际运行验证。Windows 安装包已交叉构建，Windows 实机验收待完成。[SHA-256 校验清单](https://github.com/bzbaizhen/dim-it/releases/download/v0.5.0-beta.9/SHA256SUMS.txt) · [下载正式版 0.4.3](https://github.com/bzbaizhen/dim-it/releases/tag/v0.4.3)
 
 ## 如何校准 PDF 图纸比例并测量尺寸
 
