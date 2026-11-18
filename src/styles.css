@@ -176,6 +176,10 @@ small {
   background: #e7f1f8;
   color: #146ba7;
 }
+.toolgroup > button.active {
+  background: #e7f1f8;
+  color: #146ba7;
+}
 .divider {
   height: 22px;
   width: 1px;
@@ -209,10 +213,10 @@ small {
   background: transparent;
 }
 .dropdown {
-  position: fixed;
+  position: absolute;
   z-index: 11;
-  right: 18px;
-  top: 106px;
+  right: 0;
+  top: calc(100% + 8px);
   width: 185px;
   padding: 5px;
   background: white;
@@ -291,6 +295,9 @@ small {
   max-height: 100%;
   background: white;
   box-shadow: 0 1px 4px #233c501a;
+}
+.thumbnail-paper canvas:not([data-rendered]) {
+  visibility: hidden;
 }
 .thumbnail > span {
   display: flex;
@@ -493,6 +500,119 @@ small {
 .toolgroup > button.snap-toggle.active {
   color: #087f50;
   background: #e7f5ee;
+}
+.snap-control {
+  position: relative;
+  gap: 0;
+}
+.snap-control > .snap-settings-toggle {
+  width: 27px;
+  padding: 0;
+  margin-left: 2px;
+  border-left: 1px solid var(--border);
+}
+.snap-control > .snap-menu-dismiss {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  height: auto;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: default;
+}
+.snap-control > .snap-menu-dismiss:hover,
+.snap-control > .snap-menu-dismiss:active {
+  background: transparent;
+  transform: none;
+}
+.snap-settings {
+  position: fixed;
+  z-index: 21;
+  width: 320px;
+  max-height: calc(100dvh - 165px);
+  overflow-y: auto;
+  border: 1px solid #d6e1e9;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 8px 30px #14273926;
+  color: #3f596c;
+  text-align: left;
+}
+.snap-settings header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px 9px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.snap-settings header strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.snap-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px 9px 16px;
+}
+.snap-option:hover {
+  background: #f5f9fc;
+}
+.snap-option > label {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.snap-option input {
+  margin: 3px 0 0;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  accent-color: var(--blue);
+}
+.snap-option label > span {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.snap-option label small {
+  font-size: 10px;
+  color: #8495a2;
+  white-space: normal;
+  line-height: 1.5;
+}
+.snap-option label .snap-code {
+  margin-left: 7px;
+  color: #5b7a91;
+}
+.snap-settings .snap-only {
+  font-size: 10px;
+  color: #5a819c;
+  padding: 5px;
+}
+.snap-settings > p {
+  margin: 8px 16px 12px;
+  font-size: 11px;
+  color: #8495a2;
+  white-space: normal;
+}
+.snap-settings > .snap-warning {
+  color: #a05f37;
+}
+.snap-settings footer {
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+.snap-settings footer button {
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 11px;
+  background: #f1f6fa;
 }
 .snap-status {
   color: #4a886d;
@@ -1528,8 +1648,16 @@ html[lang="en"] .guide-content-heading h3 {
   cursor: crosshair;
 }
 .toolbar {
-  overflow-x: auto;
+  overflow: visible;
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 56px;
+  padding-top: 8px;
+  padding-bottom: 8px;
   flex-shrink: 0;
+}
+.export-control {
+  margin-left: auto;
 }
 
 .region-shape {
@@ -1552,19 +1680,6 @@ html[lang="en"] .guide-content-heading h3 {
 .region-handles circle {
   stroke-width: 2;
   cursor: move;
-}
-.fill-settings {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.fill-settings label {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 12px;
-}
-.fill-settings input {
-  width: 100%;
-  accent-color: var(--blue);
 }
 .region-records {
   border-top: 1px solid var(--border);
@@ -1604,6 +1719,180 @@ html[lang="en"] .guide-content-heading h3 {
 .stage.fill {
   cursor: crosshair;
 }
+.stage.markup,
+.stage.revision {
+  cursor: crosshair;
+}
+.drawing-annotation {
+  cursor: move;
+}
+.annotation-handles circle {
+  cursor: nwse-resize;
+}
+.annotation-settings {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 5px;
+  font-size: 11px;
+  color: #536a7b;
+}
+.annotation-settings select {
+  height: 26px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+.appearance-panel {
+  padding: 9px 12px 10px;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 1200px) {
+  .appearance-panel {
+    padding-inline: 8px;
+  }
+}
+.appearance-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.appearance-heading h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.appearance-heading > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+.appearance-channel {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+.appearance-channel + .appearance-channel {
+  margin-top: 2px;
+}
+.appearance-channel.active {
+  background: #edf5fa;
+  border-radius: 4px;
+}
+.appearance-color-row,
+.appearance-color-value,
+.appearance-opacity-row {
+  display: flex;
+  align-items: center;
+}
+.appearance-color-row {
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  color: #536a7b;
+}
+.appearance-color-value {
+  gap: 7px;
+  cursor: pointer;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.appearance-color-value input[type="color"] {
+  width: 24px;
+  height: 24px;
+  padding: 2px;
+  border: 1px solid #d6e1ea;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+.appearance-color-value input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.appearance-color-value input::-webkit-color-swatch {
+  border: 0;
+  border-radius: 2px;
+}
+.appearance-opacity-row {
+  gap: 4px;
+}
+.appearance-opacity-row input[type="range"] {
+  min-width: 0;
+  width: 100%;
+  accent-color: var(--blue);
+  margin: 0;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.appearance-percent {
+  display: flex;
+  align-items: center;
+  flex: 0 0 32px;
+  font-size: 10px;
+  color: #536a7b;
+  font-variant-numeric: tabular-nums;
+}
+.appearance-percent input {
+  width: 25px;
+  min-width: 0;
+  font: inherit;
+  text-align: right;
+  padding: 2px 1px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+}
+.appearance-percent input:hover,
+.appearance-percent input:focus {
+  border-color: #b5cfe0;
+  background: white;
+}
+.appearance-panel .color-options {
+  margin-top: 6px;
+  gap: 8px;
+  align-items: center;
+}
+.appearance-panel .color-options .appearance-reset {
+  margin-left: auto;
+  width: auto;
+  height: 24px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.drawing-editor textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  min-height: 88px;
+  max-height: 240px;
+  margin-top: 8px;
+  padding: 9px;
+  font:
+    12px/1.6 Arial,
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  border: 1px solid #d6e1ea;
+  border-radius: 4px;
+  color: #3f596c;
+}
+.drawing-editor > label {
+  margin-top: 12px;
+}
+.annotation-records .region-row > span {
+  min-width: 0;
+}
+.inspector-footer b {
+  font-size: 12px;
+}
 .inspector {
   overflow-y: auto;
 }
@@ -1625,4 +1914,39 @@ html[lang="en"] .guide-content-heading h3 {
   border-radius: 3px;
   opacity: 0.65;
   white-space: nowrap;
+}
+
+@media (max-width: 1600px) {
+  .toolbar {
+    gap: 8px;
+    padding-inline: 12px;
+  }
+  .toolbar > .toolgroup > button,
+  html[lang="en"] .toolbar > .toolgroup > button {
+    padding-inline: 7px;
+  }
+  .toolbar > .toolgroup > .icon-button,
+  html[lang="en"] .toolbar > .toolgroup > .icon-button {
+    padding-inline: 0;
+  }
+  .toolbar > .toolgroup:not(.drawing-tools) > button .button-shortcut,
+  .toolbar > button .button-shortcut {
+    display: none;
+  }
+  .toolbar .drawing-tools .button-shortcut {
+    padding: 1px 3px;
+    margin-left: 0;
+    opacity: 0.85;
+  }
+  .toolbar > .drawing-tools > button:has(> .button-shortcut) {
+    gap: 5px;
+  }
+  html[lang="en"] .toolbar .modes > button:nth-child(-n + 2) > span {
+    display: none;
+  }
+}
+@media (max-width: 1200px) {
+  .toolbar > .drawing-tools > button:has(> .button-shortcut):not(.modes > :nth-child(-n + 2)) > svg {
+    display: none;
+  }
 }

@@ -19,11 +19,24 @@ Lengths follow the actual PDF path using adaptive numerical subdivision. Scanned
 
 ![Whole-path curve measurement](images/curve-length.png)
 
-Curve annotations support notes, colors, undo, recalibration and PDF / CSV export. Projects containing curves use v2 and require version 0.4.2 or later. Version 0.4.3 continues to read v1 and v2 projects.
+Curve annotations support notes, color and opacity, undo, recalibration and PDF / CSV export. Projects containing curves use v2 and require version 0.4.2 or later. Version 0.4.3 continues to read v1 and v2 projects.
 
 ## Highlighted snapping
 
-Endpoints use a green square, midpoints a triangle and intersections a cross. Clicking uses the highlighted point's exact PDF coordinates. Press S to toggle snapping or hold Alt for temporary free picking.
+Open the dropdown beside Snap and check the modes to combine. Use Only or right-click a mode to enable it alone. Preferences are saved locally. End, Mid and Int are enabled by default.
+
+| Mode | Target |
+| --- | --- |
+| End | Endpoints of lines and curves |
+| Mid | Line midpoint or halfway along the full curve length |
+| Int | Intersection of finite straight segments |
+| Near | Closest point on a line or curve, used when no other enabled snap is valid |
+| Perp | Foot of a perpendicular from the picked start point to a line or curve |
+| Tan | Contact point of a tangent from the picked start point to a curve |
+
+Perp and Tan require a picked start point and work during calibration, line measurement and subsequent polygon vertices. Curve Near, Perp and Tan use the PDF's original quadratic or cubic Bézier controls. Curve Mid uses the existing adaptive subdivision for half-arc-length placement. Int continues to target finite straight segments.
+
+Green markers and labels identify the active snap, and clicking saves its PDF coordinates. S suspends or restores snapping, Alt temporarily bypasses it, Clear permits free picking, and Reset defaults restores the original three modes. Changing modes clears existing temporary SmartTrack references. Raster-only pages support manual picking.
 
 ![Midpoint snapping](images/snapping.png)
 
@@ -42,6 +55,24 @@ Press **3** to fill a region. With an empty draft, hold the left mouse button an
 Use the palette and opacity control for new regions. Select a region to edit its color, opacity, note or vertices. Rectangle edits fix the opposite corner and retain right angles. Zero-area and self-intersecting edits restore the original shape. Clicking overlapping fills selects the topmost region. The list also selects underlying regions. Dimensions render above fills. Drawing, a vertex drag and an opacity adjustment each create one undo step.
 
 Polygons support snapping, Shift orthogonal constraints and SmartTrack. Middle-mouse pan, Space-drag and zoom preserve drafts. Page changes and tool switches end unfinished drafts. Finish or cancel a draft before saving/exporting. PDF export includes Multiply-blended fills. CSV continues to list lengths. Projects containing regions use **v3 and require version 0.4.3 or later**.
+
+## Text markup and revision clouds
+
+Press **5** or choose Text markup, drag a text box, then enter text in the sidebar. Chinese, multiple paragraphs and automatic wrapping are supported. A single click places a default-sized box. Click away or press **Mod+Enter** to commit text. Escape cancels the current text edit. Box height grows to accommodate text.
+
+The Appearance section provides font size and independent color and opacity for text, background and border. Legacy markup retains its original white background and annotation color.
+
+Press **6** or choose Revision cloud and drag a cloud box. Edit the triangular revision label (1 to 8 characters) and revision description in the sidebar. New clouds default to the next numeric label.
+
+Both tools are available immediately. Select a box to move it or resize it using its four corner handles. Double-click or press E to edit text or a revision label. Delete, undo and redo are supported. Annotations follow page zoom and rotation and are created in the current page orientation.
+
+Project files retain editable boxes, text, revision labels and descriptions. Projects containing text or revisions use **v4 and require a version supporting these tools**. The current implementation continues to read v1 through v3 projects. PDF exports include text boxes, clouds and revision labels. Text is rendered as high-resolution images for offline Unicode support, with vector borders. Revision descriptions are retained in the project. CSV exports contain measurement lengths.
+
+## Appearance settings
+
+Line and curve measurements, region fills, text markup and revision clouds use the same Appearance section. Click a swatch to choose a color and drag the slider on the same row to set opacity. A value of 0% is fully transparent and 100% is fully opaque. Presets set the primary annotation color, which is the text color for markup.
+
+Changes made before drawing set the tool's defaults. Line and curve measurements share their defaults. With an annotation selected, changes apply to that item. Sliders preview changes live and create one undo step on release. Project files and PDF exports retain styles. Legacy dimensions and revision clouds without an opacity setting use 100% opacity.
 
 ## Tab thin-line display
 

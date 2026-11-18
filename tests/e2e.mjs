@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFName } from "pdf-lib";
 
 const results = path.resolve("test-results");
 await mkdir(results, { recursive: true });
@@ -96,7 +96,19 @@ try {
   console.log("PASS undo / redo and imperial display");
   await page.locator(".measurement-row").click();
   await page.getByLabel("标注备注").fill("Living room");
-  await page.getByLabel("标注备注").press("Enter");
+  await page.getByRole("slider", { name: "尺寸不透明度", exact: true }).press("PageDown");
+  await page.getByLabel("尺寸颜色").fill("#198267");
+  assert.equal(
+    await page
+      .locator(".dimension-line")
+      .first()
+      .getAttribute("stroke-opacity"),
+    "0.9",
+  );
+  assert.equal(
+    await page.locator(".dimension-label").getAttribute("fill-opacity"),
+    "0.9",
+  );
   await page.getByRole("button", { name: "放大", exact: true }).click();
   await settled();
   assert.match(
@@ -122,6 +134,8 @@ try {
   );
   assert.equal(project.data.measurements.length, 1);
   assert.equal(project.data.measurements[0].note, "Living room");
+  assert.equal(project.data.measurements[0].opacity, 0.9);
+  assert.equal(project.data.measurements[0].color, "#198267");
   await setSavePath("demo-measured.pdf");
   await page.getByRole("button", { name: "导出", exact: true }).click();
   await page.getByRole("button", { name: "带标注 PDF" }).click();
@@ -133,6 +147,13 @@ try {
   );
   assert.equal(exported.getPageCount(), 2);
   assert.equal(exported.getPage(0).getRotation().angle, 90);
+  const states = exported
+    .getPage(0)
+    .node.Resources()
+    .lookup(PDFName.of("ExtGState"))
+    .toString();
+  assert.match(states, /\/CA 0.9/);
+  assert.match(states, /\/ca 0.9/);
   console.log("PASS project save and rotated annotated PDF export");
   await page.reload();
   await page.getByRole("button", { name: "跳过说明", exact: true }).click();
@@ -155,6 +176,9 @@ try {
     /12,000.0 mm/,
   );
   console.log("PASS project file reopens with measurements");
+  await page.locator(".measurement-row").click();
+  assert.equal(await page.getByRole("slider", { name: "尺寸不透明度", exact: true }).inputValue(), "90");
+  assert.equal(await page.getByLabel("尺寸颜色").inputValue(), "#198267");
   await setSavePath("measurements.csv");
   await page.getByRole("button", { name: "导出", exact: true }).click();
   await page.getByRole("button", { name: "测量清单 CSV" }).click();

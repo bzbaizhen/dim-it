@@ -38,15 +38,28 @@ test("defaults are independent, valid, conflict-free and platform aware", () => 
       parseShortcutOverrides(JSON.stringify(bindings), mac),
       bindings,
     );
-    assert.equal(commandRegistry.length, 25);
+    assert.equal(commandRegistry.length, 27);
     assert.ok(Object.values(bindings).every((chords) => chords.length <= 2));
     assert.deepEqual(bindings.measure, ["Digit1"]);
+    assert.deepEqual(bindings.markup, ["Digit5"]);
+    assert.deepEqual(bindings.revision, ["Digit6"]);
     assert.deepEqual(bindings.select, []);
     assert.equal(bindings.redo.includes("Mod+KeyY"), !mac);
   }
   const bindings = defaultBindings(true);
   bindings.measure.length = 0;
   assert.deepEqual(defaultBindings(true).measure, ["Digit1"]);
+});
+
+test("new annotation shortcuts preserve existing custom bindings", () => {
+  const bindings = parseShortcutOverrides(
+    '{"select":["Digit5"],"pan":["Digit6"]}',
+    true,
+  );
+  assert.deepEqual(bindings.select, ["Digit5"]);
+  assert.deepEqual(bindings.pan, ["Digit6"]);
+  assert.deepEqual(bindings.markup, []);
+  assert.deepEqual(bindings.revision, []);
 });
 test("normalizes physical codes, Mod, plus/minus and numeric keypad", () => {
   assert.equal(chordFromEvent(key("Digit1"), true), "Digit1");

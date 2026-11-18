@@ -1,8 +1,29 @@
+import { version as appVersion } from "../package.json" with { type: "json" };
 import RegionLayer, { RegionHandles } from "./RegionLayer";
+import AnnotationLayer from "./AnnotationLayer";
+import AppearanceColor from "./AppearanceColor";
+import {
+  appearanceColors as colors,
+  appearanceKey,
+  factoryAppearance,
+  loadAppearanceDefaults,
+  markupFontSizes,
+} from "./appearancePreferences.ts";
+import {
+  annotationLocal,
+  annotationPoint,
+  fitAnnotationToPage,
+  markupHeight,
+  markupMinimumWidth,
+  markupStyle,
+  type DrawingAnnotation,
+  type MarkupStyle,
+} from "./annotations.ts";
 import {
   validPolygon,
   isValidRegionGeometry,
   resizeRegionVertex,
+  regionVertices,
 } from "./regions.ts";
 import {
   commandRegistry,
@@ -13,14 +34,23 @@ import {
   type CommandId,
 } from "./shortcuts.ts";
 import ShortcutSettings from "./ShortcutSettings";
+import SnapSettings from "./SnapSettings";
+import {
+  loadSnapKinds,
+  parseSnapKinds,
+  snapLabels,
+  snapPreferenceKey,
+} from "./snapPreferences.ts";
 import { pathLength, pathMidpoint } from "./curve.ts";
 import { t, useLanguage, setLanguage } from "./i18n.ts";
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
@@ -30,6 +60,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Crosshair,
+  Cloud,
   FilePlus2,
   FolderOpen,
   Hand,
@@ -49,6 +80,7 @@ import {
   ScanLine,
   ShieldCheck,
   Trash2,
+  Type,
   Undo2,
   X,
 } from "lucide-react";
@@ -79,7 +111,7 @@ import {
 } from "./pdf";
 import { loadAutosave, saveAutosave } from "./storage";
 import QuickStart, { shouldShowQuickStart } from "./QuickStart";
-import type { SnapHit, SnapIndex } from "./snap";
+import type { SnapHit, SnapIndex, SnapKind } from "./snap";
 import {
   captureSmartPoint,
   nearestTrackingPoint,
@@ -89,7 +121,16 @@ import {
   type TrackHit,
 } from "./snap";
 
-type Tool = "select" | "pan" | "calibrate" | "measure" | "curve" | "fill";
+type Tool =
+  | "select"
+  | "pan"
+  | "calibrate"
+  | "measure"
+  | "curve"
+  | "fill"
+  | "markup"
+  | "revision";
+type MarkupChannel = "text" | "background" | "border";
 type DocumentState = { pdf: PDFDocumentProxy; bytes: Uint8Array; name: string };
 const unitLabels: Record<Unit, string> = {
   mm: "毫米 mm",
@@ -97,8 +138,12 @@ const unitLabels: Record<Unit, string> = {
   ft: "英尺 feet",
   "ft-in": "英尺 + 英寸",
 };
-const colors = ["#187bc1", "#d24a3e", "#198267", "#9b5bc2"];
-const snapLabels = { endpoint: "端点", midpoint: "中点", intersection: "交点" };
+type AppearancePatch = {
+  color?: string;
+  opacity?: number;
+  style?: MarkupStyle;
+};
+type AppearanceEdit = { id: string; updates: AppearancePatch };
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -117,29 +162,45 @@ function Thumbnail({
   active: boolean;
   calibrated: boolean;
   count: number;
-  onSelect: () => void;
+  onSelect: (event: ReactMouseEvent<HTMLButtonElement>) => void;
 }) {
   useLanguage();
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
+    const target = canvas.current;
+    if (!target) return;
+    delete target.dataset.rendered;
     let canceled = false;
     let task: RenderTask | undefined;
-    void pdf
-      .getPage(page)
-      .then(async (item) => {
-        if (canceled || !canvas.current) return;
+    const render = async () => {
+      try {
+        const item = await pdf.getPage(page);
+        if (canceled) return;
         const original = item.getViewport({ scale: 1 });
         const viewport = item.getViewport({
           scale: Math.min(136 / original.width, 102 / original.height) * 1.5,
         });
-        canvas.current.width = viewport.width;
-        canvas.current.height = viewport.height;
-        task = item.render({ canvas: canvas.current, viewport });
+        target.width = viewport.width;
+        target.height = viewport.height;
+        task = item.render({ canvas: target, viewport });
         await task.promise;
-      })
-      .catch(() => {});
+        if (!canceled) target.dataset.rendered = "true";
+      } catch {
+        // A thumbnail can remain a placeholder if its page cannot render.
+      }
+    };
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (canceled || !entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        void render();
+      },
+      { root: target.closest(".thumbnails"), rootMargin: "220px 0px" },
+    );
+    observer.observe(target.closest(".thumbnail") ?? target);
     return () => {
       canceled = true;
+      observer.disconnect();
       task?.cancel();
     };
   }, [pdf, page]);
@@ -151,7 +212,7 @@ function Thumbnail({
       aria-current={active ? "page" : undefined}
     >
       <div className="thumbnail-paper">
-        <canvas ref={canvas} />
+        <canvas ref={canvas} width={1} height={1} />
         {count > 0 && <span className="count-badge">{count}</span>}
       </div>
       <span>
@@ -192,10 +253,34 @@ export default function App() {
   const regionDraftRef = useRef(regionDraft);
   regionDraftRef.current = regionDraft;
   const [regionPreview, setRegionPreview] = useState<RegionFill | null>(null);
-  const [fillStyle, setFillStyle] = useState({
-    color: colors[0],
-    opacity: 0.25,
-  });
+  const [annotationPreview, setAnnotationPreview] =
+    useState<DrawingAnnotation | null>(null);
+  const [appearanceDefaults, setAppearanceDefaults] = useState(loadAppearanceDefaults);
+  const {
+    measurement: measurementStyle,
+    fill: fillStyle,
+    revision: revisionStyle,
+    markup: defaultMarkupStyle,
+    fontSize: markupFontSize,
+  } = appearanceDefaults;
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(appearanceKey, JSON.stringify(appearanceDefaults));
+    } catch {
+      // Current-session defaults still work when local preferences are unavailable.
+    }
+  }, [appearanceDefaults]);
+  const [markupChannel, setMarkupChannel] = useState<MarkupChannel>("text");
+  const [appearancePreview, setAppearancePreview] =
+    useState<AppearanceEdit | null>(null);
+  const appearanceEdit = useRef<AppearanceEdit | null>(null);
+  const annotationGesture = useRef<{
+    kind: "create" | "move" | "resize";
+    original: DrawingAnnotation;
+    start: Point;
+    corner?: number;
+    next: DrawingAnnotation;
+  } | null>(null);
   const regionGesture = useRef<
     | null
     | {
@@ -210,11 +295,13 @@ export default function App() {
     null,
   );
   const pendingMeasureTool = useRef<"measure" | "curve" | null>(null);
-  const [opacityPreview, setOpacityPreview] = useState<number | null>(null);
-  const opacityChange = useRef<{ id: string; value: number } | null>(null);
   const [anchor, setAnchor] = useState<Point | null>(null);
   const [cursor, setCursor] = useState<Point | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
+  const [snapPreferences, setSnapPreferences] = useState(loadSnapKinds);
+  const [snapSettingsOpen, setSnapSettingsOpen] = useState(false);
+  const selectedSnapKinds = snapPreferences.kinds;
+  const snapActive = snapEnabled && selectedSnapKinds.length > 0;
   const [snapHit, setSnapHit] = useState<SnapHit | null>(null);
   const [altPressed, setAltPressed] = useState(false);
   const [shiftPressed, setShiftPressed] = useState(false);
@@ -253,7 +340,6 @@ export default function App() {
   const [exportMenu, setExportMenu] = useState(false);
   const [help, setHelp] = useState(shouldShowQuickStart);
   const [space, setSpace] = useState(false);
-  const [color, setColor] = useState(colors[0]);
   const [ready, setReady] = useState(false);
   const stage = useRef<HTMLDivElement>(null);
   const paper = useRef<HTMLDivElement>(null);
@@ -282,21 +368,74 @@ export default function App() {
       ? snapGeometry
       : null;
   const snapStatus = snapContext?.status || "loading";
-  const pageMeasurements = data.measurements.filter(
-    (item) => item.page === page,
+  const { recordCounts, measurementNumbers } = useMemo(() => {
+    const recordCounts = new Map<number, number>();
+    const measurementNumbers = new Map<string, number>();
+    const count = (item: { page: number }) => {
+      recordCounts.set(item.page, (recordCounts.get(item.page) ?? 0) + 1);
+    };
+    data.measurements.forEach((item, index) => {
+      count(item);
+      measurementNumbers.set(item.id, index + 1);
+    });
+    data.regions.forEach(count);
+    data.annotations.forEach(count);
+    return { recordCounts, measurementNumbers };
+  }, [data.measurements, data.regions, data.annotations]);
+  const pageMeasurements = useMemo(
+    () => data.measurements.filter((item) => item.page === page),
+    [data.measurements, page],
   );
-  const selectedMeasurement = data.measurements.find(
-    (item) => item.id === selected,
+  const pageRegions = useMemo(
+    () => data.regions.filter((item) => item.page === page),
+    [data.regions, page],
   );
-  const pageRegions = data.regions.filter((item) => item.page === page);
-  const selectedRegion = data.regions.find((item) => item.id === selected);
-  const selectedAnnotation = selectedRegion || selectedMeasurement;
+  const pageAnnotations = useMemo(
+    () => data.annotations.filter((item) => item.page === page),
+    [data.annotations, page],
+  );
+  const selectedMeasurement = selected
+    ? pageMeasurements.find((item) => item.id === selected)
+    : undefined;
+  const selectedRegion = selected
+    ? pageRegions.find((item) => item.id === selected)
+    : undefined;
+  const selectedDrawing = selected
+    ? pageAnnotations.find((item) => item.id === selected)
+    : undefined;
+  const selectedAnnotation =
+    selectedDrawing || selectedRegion || selectedMeasurement;
+  const annotationMode =
+    tool === "markup" || tool === "revision" || !!selectedDrawing;
+  const markupMode = tool === "markup" || selectedDrawing?.kind === "markup";
+  const activeMarkupStyle =
+    selectedDrawing?.kind === "markup"
+      ? markupStyle(withAppearancePreview(selectedDrawing))
+      : defaultMarkupStyle;
+  const fillMode = !!selectedRegion || tool === "fill";
+  const revisionMode =
+    selectedDrawing?.kind === "revision" || tool === "revision";
+  const styleKey = fillMode ? "fill" : revisionMode ? "revision" : "measurement";
+  const activeAppearance = selectedAnnotation
+    ? withAppearancePreview(selectedAnnotation)
+    : appearanceDefaults[styleKey];
+  const markupChannels = [
+    ["text", t("文字")],
+    ["background", t("背景")],
+    ["border", t("边框")],
+  ] as const;
+  const markupChannelLabel = markupChannels.find(
+    ([channel]) => channel === markupChannel,
+  )?.[1];
+  const activeColor = markupMode
+    ? activeMarkupStyle[`${markupChannel}Color`]
+    : activeAppearance.color;
   const pickAnchor =
     tool === "fill" ? regionDraft[regionDraft.length - 1] || null : anchor;
   const trackingActive =
     !!pickAnchor &&
     shiftPressed &&
-    snapEnabled &&
+    snapActive &&
     !space &&
     !altPressed &&
     !calibrationPoints &&
@@ -306,6 +445,20 @@ export default function App() {
     (text: string, error = false) => setNotice({ text, error }),
     [],
   );
+
+  function changeSnapKinds(kinds: SnapKind[]) {
+    const normalized = parseSnapKinds(kinds);
+    let warning = false;
+    try {
+      window.localStorage.setItem(
+        snapPreferenceKey,
+        JSON.stringify(normalized),
+      );
+    } catch {
+      warning = true;
+    }
+    setSnapPreferences({ kinds: normalized, warning });
+  }
   useEffect(() => {
     if (notice) {
       const timer = setTimeout(
@@ -464,13 +617,23 @@ export default function App() {
     regionDraftRef.current = [];
     setRegionPreview(null);
     regionGesture.current = null;
-  }, [page, tool, document]);
+    annotationGesture.current = null;
+    setAnnotationPreview(null);
+  }, [page, tool, rotation, document]);
 
   useEffect(() => {
     setSmartPoints([]);
     setTrackingCandidate(null);
     setTrackHit(null);
-  }, [pickAnchor, page, tool, rotation, document, snapEnabled]);
+  }, [
+    pickAnchor,
+    page,
+    tool,
+    rotation,
+    document,
+    snapEnabled,
+    selectedSnapKinds,
+  ]);
 
   useEffect(() => {
     if (
@@ -512,6 +675,7 @@ export default function App() {
     rotation,
     viewport,
     snapEnabled,
+    selectedSnapKinds,
     space,
     altPressed,
     calibrationPoints,
@@ -736,7 +900,7 @@ export default function App() {
       if (name.toLowerCase().endsWith(".planmeasure")) {
         const project = JSON.parse(new TextDecoder().decode(bytes));
         if (
-          ![1, 2, 3].includes(project.version) ||
+          ![1, 2, 3, 4].includes(project.version) ||
           typeof project.pdf !== "string" ||
           typeof project.filename !== "string"
         )
@@ -764,6 +928,7 @@ export default function App() {
       setFileDirty(false);
       revision.current++;
       await fit(candidate, 1, next.rotations);
+      focusDrawing();
       // Let the previous render effect cancel before destroying its worker.
       if (old)
         setTimeout(() => {
@@ -821,6 +986,7 @@ export default function App() {
 
   async function saveProject() {
     if (!document || operation.current) return;
+    if (annotationGesture.current) return;
     if (regionDraftRef.current.length || regionGesture.current) {
       notify(t("请先完成区域或按 Esc 取消草稿"));
       return;
@@ -830,11 +996,13 @@ export default function App() {
     const savedRevision = revision.current;
     try {
       const content = JSON.stringify({
-        version: dataRef.current.regions.length
-          ? 3
-          : dataRef.current.measurements.some((item) => item.path)
-            ? 2
-            : 1,
+        version: dataRef.current.annotations.length
+          ? 4
+          : dataRef.current.regions.length
+            ? 3
+            : dataRef.current.measurements.some((item) => item.path)
+              ? 2
+              : 1,
         filename: document.name,
         pdf: bytesToBase64(document.bytes),
         data: dataRef.current,
@@ -859,6 +1027,7 @@ export default function App() {
   async function exportFile(type: "pdf" | "csv") {
     setExportMenu(false);
     if (!document || operation.current) return;
+    if (annotationGesture.current) return;
     if (regionDraftRef.current.length || regionGesture.current) {
       notify(t("请先完成区域或按 Esc 取消草稿"));
       return;
@@ -894,6 +1063,8 @@ export default function App() {
     regionDraftRef.current = [];
     setRegionPreview(null);
     regionGesture.current = null;
+    annotationGesture.current = null;
+    setAnnotationPreview(null);
     setSelected(null);
     pendingMeasureTool.current = null;
     if ((next === "measure" || next === "curve") && !scale) {
@@ -906,9 +1077,14 @@ export default function App() {
     setAnchor(null);
   }
 
-  function navigate(next: number) {
+  function focusDrawing() {
+    stage.current?.focus({ preventScroll: true });
+  }
+
+  function navigate(next: number, focusCanvas: boolean) {
     if (!document || next < 1 || next > document.pdf.numPages) return;
     setPage(next);
+    if (focusCanvas) focusDrawing();
     void fit(document.pdf, next, data.rotations).catch((error) =>
       notify(errorMessage(error), true),
     );
@@ -938,7 +1114,7 @@ export default function App() {
     let tracked: TrackHit | null = null;
     let candidate: SnapHit | null = null;
     if (
-      snapEnabled &&
+      snapActive &&
       !event.altKey &&
       !space &&
       (tool === "calibrate" || tool === "measure" || tool === "fill")
@@ -947,7 +1123,8 @@ export default function App() {
         event.shiftKey && pickAnchor
           ? {
               coordinate: (Math.abs(px - pickAnchor.x) < 1e-6 ? "x" : "y") as
-                "x" | "y",
+                | "x"
+                | "y",
               value:
                 Math.abs(px - pickAnchor.x) < 1e-6
                   ? pickAnchor.x
@@ -963,12 +1140,15 @@ export default function App() {
           { x: px, y: py },
           10 / pixelsPerPoint,
           axis,
+          { enabled: selectedSnapKinds, anchor: pickAnchor || undefined },
         ) || null;
       if (axis && !calibrationPoints) {
         candidate =
           snapContext?.index?.nearest(
             { x: rawX, y: rawY },
             10 / pixelsPerPoint,
+            undefined,
+            { enabled: selectedSnapKinds, anchor: pickAnchor || undefined },
           ) || null;
         if (candidate && pickAnchor && samePoint(candidate.point, pickAnchor))
           candidate = null;
@@ -988,7 +1168,10 @@ export default function App() {
       }
     }
     setTrackingCandidate((previous) =>
-      previous && candidate && samePoint(previous.point, candidate.point)
+      previous &&
+      candidate &&
+      previous.kind === candidate.kind &&
+      samePoint(previous.point, candidate.point)
         ? previous
         : candidate,
     );
@@ -1012,6 +1195,7 @@ export default function App() {
     altPressed,
     space,
     snapEnabled,
+    selectedSnapKinds,
     viewport,
     smartPoints,
     pickAnchor,
@@ -1044,7 +1228,51 @@ export default function App() {
       setSelected(null);
       return;
     }
-    if (snapEnabled && !event.altKey && snapStatus === "loading") {
+    if ((tool === "markup" || tool === "revision") && viewport) {
+      const point = toPDF(event);
+      if (!point) return;
+      const common = {
+        id: "draft",
+        page,
+        origin: point,
+        width: 180,
+        height: 70,
+        rotation: viewport.rotation,
+        color: revisionStyle.color,
+        note: "",
+      };
+      const numbers = data.annotations
+        .filter((item) => item.kind === "revision")
+        .map((item) => Number(item.label))
+        .filter(
+          (value) =>
+            Number.isSafeInteger(value) && value >= 0 && value < 9999999,
+        );
+      const original: DrawingAnnotation =
+        tool === "markup"
+          ? {
+              ...common,
+              kind: "markup",
+              color: defaultMarkupStyle.textColor,
+              fontSize: markupFontSize,
+              style: { ...defaultMarkupStyle },
+            }
+          : {
+              ...common,
+              kind: "revision",
+              opacity: revisionStyle.opacity,
+              label: String(Math.max(0, ...numbers) + 1),
+            };
+      annotationGesture.current = {
+        kind: "create",
+        original,
+        start: point,
+        next: original,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (snapActive && !event.altKey && snapStatus === "loading") {
       notify(t("正在准备矢量捕捉，请稍后选点，也可按住 Alt 自由选点"));
       return;
     }
@@ -1076,7 +1304,7 @@ export default function App() {
         a: hit[0],
         b: hit[hit.length - 1],
         path: hit,
-        color,
+        ...measurementStyle,
         note: "",
       };
       change({ ...data, measurements: [...data.measurements, item] });
@@ -1136,7 +1364,7 @@ export default function App() {
         a: anchor,
         b: point,
         note: "",
-        color,
+        ...measurementStyle,
       };
       change({ ...data, measurements: [...data.measurements, item] });
       setSelected(item.id);
@@ -1171,6 +1399,57 @@ export default function App() {
         drag.current.top - event.clientY + drag.current.y;
       return;
     }
+    const boxGesture = annotationGesture.current;
+    if (boxGesture) {
+      const point = toPDF(event);
+      if (!point || !viewport) return;
+      const { original, start, kind, corner = 0 } = boxGesture;
+      let next = original;
+      if (kind === "move") {
+        next = {
+          ...original,
+          origin: {
+            x: original.origin.x + point.x - start.x,
+            y: original.origin.y + point.y - start.y,
+          },
+        };
+      } else {
+        const local = annotationLocal(original, point);
+        if (kind === "create") {
+          next = {
+            ...original,
+            origin: annotationPoint(
+              original,
+              Math.min(0, local.x),
+              Math.min(0, local.y),
+            ),
+            width: Math.abs(local.x),
+            height: Math.abs(local.y),
+          };
+        } else {
+          const left = corner === 0 || corner === 3;
+          const top = corner < 2;
+          const x = left ? Math.min(local.x, original.width - 40) : 0;
+          const y = top ? Math.min(local.y, original.height - 40) : 0;
+          next = {
+            ...original,
+            origin: annotationPoint(original, x, y),
+            width: left ? original.width - x : Math.max(40, local.x),
+            height: top ? original.height - y : Math.max(40, local.y),
+          };
+        }
+      }
+      if (next.kind === "markup" && next.width >= 40) {
+        next = {
+          ...next,
+          width: Math.max(next.width, markupMinimumWidth(next)),
+        };
+        next = { ...next, height: Math.max(next.height, markupHeight(next)) };
+      }
+      boxGesture.next = fitAnnotationToPage(next, viewport.viewBox);
+      setAnnotationPreview(boxGesture.next);
+      return;
+    }
     const gesture = regionGesture.current;
     if (gesture) {
       const point = toPDF({
@@ -1182,10 +1461,16 @@ export default function App() {
       });
       if (!point) return;
       if (gesture.kind === "vertex") {
+        // Coincident handles share one screen location even when layout rounding
+        // produces slightly different PDF coordinates after a resize.
+        const coincident = regionVertices(gesture.original).find(
+          (vertex, index) =>
+            index !== gesture.index && distance(vertex, point) * zoom < 0.5,
+        );
         gesture.next = resizeRegionVertex(
           gesture.original,
           gesture.index,
-          point,
+          coincident || point,
         );
         setRegionPreview(gesture.next);
       } else {
@@ -1225,13 +1510,104 @@ export default function App() {
     });
   }
 
+  function focusAnnotationEditor(id: string) {
+    setSelected(id);
+    setTool("select");
+    requestAnimationFrame(() => {
+      const item = dataRef.current.annotations.find((item) => item.id === id);
+      const field = window.document.getElementById(
+        item?.kind === "revision" ? "revision-label" : "note",
+      );
+      field?.focus({ preventScroll: true });
+    });
+  }
+
+  function updateDrawingAnnotation(
+    item: DrawingAnnotation,
+    updates?: {
+      note?: string;
+      fontSize?: number;
+      label?: string;
+    },
+  ) {
+    if (!viewport) return;
+    const current =
+      dataRef.current.annotations.find((saved) => saved.id === item.id) || item;
+    let next: DrawingAnnotation = updates ? { ...current, ...updates } : item;
+    if (next.kind === "revision") {
+      const label = next.label.trim();
+      if (!label || label.length > 8) {
+        notify(t("修订编号需填写 1 至 8 个字符"), true);
+        return false;
+      }
+      next = { ...next, label };
+    } else {
+      next = { ...next, width: Math.max(next.width, markupMinimumWidth(next)) };
+      next = { ...next, height: Math.max(next.height, markupHeight(next)) };
+    }
+    next = fitAnnotationToPage(next, viewport.viewBox);
+    if (
+      next.kind === "markup" &&
+      (markupHeight(next) > next.height + 0.01 ||
+        markupMinimumWidth(next) > next.width + 0.01)
+    ) {
+      notify(t("文字超出页面，请减少内容或调小字号"), true);
+      return false;
+    }
+    if (
+      JSON.stringify(next) ===
+      JSON.stringify(
+        dataRef.current.annotations.find((saved) => saved.id === item.id),
+      )
+    )
+      return true;
+    change({
+      ...dataRef.current,
+      annotations: dataRef.current.annotations.map((saved) =>
+        saved.id === item.id ? next : saved,
+      ),
+    });
+    return true;
+  }
+
+  function beginAnnotationGesture(
+    event: ReactPointerEvent<SVGElement>,
+    item: DrawingAnnotation,
+    corner?: number,
+  ) {
+    if (event.button !== 0 || tool !== "select" || space || busy) return;
+    event.stopPropagation();
+    event.preventDefault();
+    const active = window.document.activeElement;
+    if (
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+    )
+      active.blur();
+    const original =
+      dataRef.current.annotations.find((saved) => saved.id === item.id) || item;
+    const point = toPDF(event);
+    if (!point) return;
+    setSelected(item.id);
+    annotationGesture.current = {
+      kind: corner === undefined ? "move" : "resize",
+      original,
+      start: point,
+      corner,
+      next: original,
+    };
+    event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
+  }
+
   function completeRegion(region: RegionFill) {
     if (!isValidRegionGeometry(region)) {
       notify(t("区域边界无效，请避免自交或零面积"), true);
       return false;
     }
     if (
-      dataRef.current.regions.length + dataRef.current.measurements.length >=
+      dataRef.current.regions.length +
+        dataRef.current.measurements.length +
+        dataRef.current.annotations.length >=
       100000
     ) {
       notify(t("项目标注数量超出限制"), true);
@@ -1292,6 +1668,34 @@ export default function App() {
   function pointerUp(event: ReactPointerEvent<SVGSVGElement>) {
     if (drag.current) {
       drag.current = null;
+    } else if (annotationGesture.current) {
+      const gesture = annotationGesture.current;
+      annotationGesture.current = null;
+      setAnnotationPreview(null);
+      if (gesture.kind === "create" && viewport) {
+        let item = gesture.next;
+        if (distance(gesture.start, toPDF(event) || gesture.start) * zoom < 5)
+          item = fitAnnotationToPage(gesture.original, viewport.viewBox);
+        if (item.width < 40 || item.height < 40) {
+          notify(t("标注框过小，请重新拖动绘制"), true);
+        } else if (
+          dataRef.current.annotations.length +
+            dataRef.current.regions.length +
+            dataRef.current.measurements.length >=
+          100000
+        ) {
+          notify(t("项目标注数量超出限制"), true);
+        } else {
+          item = { ...item, id: crypto.randomUUID() };
+          change({
+            ...dataRef.current,
+            annotations: [...dataRef.current.annotations, item],
+          });
+          focusAnnotationEditor(item.id);
+        }
+      } else if (gesture.kind !== "create") {
+        updateDrawingAnnotation(gesture.next);
+      }
     } else if (regionGesture.current) {
       const gesture = regionGesture.current;
       regionGesture.current = null;
@@ -1337,16 +1741,80 @@ export default function App() {
       event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
-  function commitOpacity() {
-    const pending = opacityChange.current;
-    opacityChange.current = null;
-    setOpacityPreview(null);
+  function withAppearancePreview<T extends { id: string }>(
+    item: T,
+  ): T & AppearancePatch {
+    return appearancePreview?.id === item.id
+      ? { ...item, ...appearancePreview.updates }
+      : item;
+  }
+
+  function commitAppearance() {
+    const pending = appearanceEdit.current;
     if (!pending) return;
-    const region = dataRef.current.regions.find(
-      (item) => item.id === pending.id,
-    );
-    if (region && region.opacity !== pending.value)
-      updateRegion({ ...region, opacity: pending.value });
+    appearanceEdit.current = null;
+    setAppearancePreview(null);
+    const { id, updates } = pending;
+    const current = dataRef.current;
+    const collection = current.measurements.some((item) => item.id === id)
+      ? "measurements"
+      : current.regions.some((item) => item.id === id)
+        ? "regions"
+        : "annotations";
+    let changed = false;
+    const items = current[collection].map((item) => {
+      if (item.id !== id) return item;
+      const appearance: AppearancePatch = item;
+      if (
+        (updates.color === undefined || updates.color === appearance.color) &&
+        (updates.opacity === undefined ||
+          updates.opacity === (appearance.opacity ?? 1)) &&
+        (updates.style === undefined ||
+          JSON.stringify(updates.style) === JSON.stringify(appearance.style))
+      )
+        return item;
+      changed = true;
+      return { ...item, ...updates };
+    });
+    if (changed) change({ ...current, [collection]: items });
+  }
+
+  function changeAppearance(updates: AppearancePatch, preview = false) {
+    if (!selectedAnnotation) {
+      setAppearanceDefaults((defaults) =>
+        updates.style
+          ? { ...defaults, markup: updates.style }
+          : { ...defaults, [styleKey]: { ...defaults[styleKey], ...updates } },
+      );
+      return;
+    }
+    const id = selectedAnnotation.id;
+    const pending = appearanceEdit.current;
+    if (pending && pending.id !== id) commitAppearance();
+    const edit = {
+      id,
+      updates: { ...(pending?.id === id ? pending.updates : {}), ...updates },
+    };
+    appearanceEdit.current = edit;
+    if (preview) setAppearancePreview(edit);
+    else commitAppearance();
+  }
+
+  function changeMarkupStyle(updates: Partial<MarkupStyle>, preview = false) {
+    const previous = appearanceEdit.current;
+    const style = {
+      ...(previous?.id === selectedDrawing?.id && previous?.updates.style
+        ? previous.updates.style
+        : activeMarkupStyle),
+      ...updates,
+    };
+    changeAppearance({ color: style.textColor, style }, preview);
+  }
+
+  function changeAppearanceColor(value: string) {
+    if (value === activeColor) return;
+    if (markupMode) changeMarkupStyle({ [`${markupChannel}Color`]: value });
+    else changeAppearance({ color: value });
   }
 
   function calibrate(event: React.FormEvent) {
@@ -1377,6 +1845,7 @@ export default function App() {
       ...data,
       measurements: data.measurements.filter((item) => item.id !== selected),
       regions: data.regions.filter((item) => item.id !== selected),
+      annotations: data.annotations.filter((item) => item.id !== selected),
     });
     setSelected(null);
   }
@@ -1397,7 +1866,9 @@ export default function App() {
         !help &&
         !calibrationPoints &&
         !shortcutsOpen &&
-        (!regionGesture.current || command.id === "thinLines"),
+        !snapSettingsOpen &&
+        ((!regionGesture.current && !annotationGesture.current) ||
+          command.id === "thinLines"),
     ]),
   );
   const menuStateJson = JSON.stringify({
@@ -1415,12 +1886,14 @@ export default function App() {
     window.desktop?.setShortcuts(JSON.parse(menuStateJson));
   }, [menuStateJson]);
 
-  async function dispatchCommand(id: CommandId) {
+  async function dispatchCommand(id: CommandId, focusCanvas = true) {
     if (
       help ||
       calibrationPoints ||
       shortcutsOpen ||
+      snapSettingsOpen ||
       (regionGesture.current && id !== "thinLines") ||
+      annotationGesture.current ||
       capturingShortcut
     )
       return;
@@ -1449,16 +1922,18 @@ export default function App() {
       case "measure":
       case "curve":
       case "fill":
+      case "markup":
+      case "revision":
       case "calibrate":
       case "select":
       case "pan":
         chooseTool(id);
         break;
       case "prevPage":
-        navigate(page - 1);
+        navigate(page - 1, focusCanvas);
         break;
       case "nextPage":
-        navigate(page + 1);
+        navigate(page + 1, focusCanvas);
         break;
       case "fit":
         if (document) void fit(document.pdf, page, data.rotations);
@@ -1489,6 +1964,10 @@ export default function App() {
         setSnapEnabled((value) => !value);
         break;
       case "editNote": {
+        if (selectedDrawing) {
+          focusAnnotationEditor(selectedDrawing.id);
+          break;
+        }
         const note = window.document.getElementById(
           "note",
         ) as HTMLInputElement | null;
@@ -1537,6 +2016,10 @@ export default function App() {
       if (shortcutsOpen) return;
       if (event.key === "Escape") {
         event.preventDefault();
+        if (snapSettingsOpen) {
+          setSnapSettingsOpen(false);
+          return;
+        }
         if (help) {
           setHelp(false);
           return;
@@ -1553,6 +2036,11 @@ export default function App() {
         if (regionGesture.current) {
           regionGesture.current = null;
           setRegionPreview(null);
+          return;
+        }
+        if (annotationGesture.current) {
+          annotationGesture.current = null;
+          setAnnotationPreview(null);
           return;
         }
         if (regionDraftRef.current.length) {
@@ -1574,7 +2062,8 @@ export default function App() {
         setTool("select");
         return;
       }
-      if (help || calibrationPoints || busy || !ready) return;
+      if (help || calibrationPoints || snapSettingsOpen || busy || !ready)
+        return;
       if (inputTarget) {
         const chord = chordFromEvent(event, isMac);
         if (chord?.startsWith("Mod+")) {
@@ -1648,6 +2137,8 @@ export default function App() {
       drag.current = null;
       regionGesture.current = null;
       setRegionPreview(null);
+      annotationGesture.current = null;
+      setAnnotationPreview(null);
     };
     window.addEventListener("keydown", keydown);
     window.addEventListener("keyup", keyup);
@@ -1679,6 +2170,9 @@ export default function App() {
     return { x, y };
   };
   const snapScreen = snapHit && viewport ? screen(snapHit.point) : null;
+  const snapLabelWidth = snapHit
+    ? Math.max(53, t(snapLabels[snapHit.kind]).length * 6.5 + 14)
+    : 53;
   const trackScreen = trackHit && viewport ? screen(trackHit.point) : null;
   const sourceScreen =
     trackHit && viewport ? screen(trackHit.source.point) : null;
@@ -1697,6 +2191,7 @@ export default function App() {
     id: string,
     preview = false,
     path?: Point[],
+    opacity = 1,
   ) {
     const start = screen(a),
       end = screen(b);
@@ -1729,6 +2224,7 @@ export default function App() {
         />
         <polyline
           className="dimension-line"
+          strokeOpacity={opacity}
           points={points.map((point) => `${point.x},${point.y}`).join(" ")}
           strokeDasharray={preview ? "5 4" : undefined}
         />
@@ -1745,6 +2241,7 @@ export default function App() {
             <g key={index}>
               <line
                 className="dimension-line"
+                strokeOpacity={opacity}
                 x1={point.x - dx}
                 y1={point.y - dy}
                 x2={point.x + dx}
@@ -1755,19 +2252,27 @@ export default function App() {
                 cy={point.y}
                 r={selected === id ? 4 : 2.5}
                 fill="currentColor"
+                fillOpacity={opacity}
               />
             </g>
           );
         })}
         <rect
           className="dimension-label"
+          fillOpacity={opacity}
+          strokeOpacity={opacity}
           x={center.x - width / 2}
           y={center.y - 31}
           width={width}
           height={23}
           rx={4}
         />
-        <text x={center.x} y={center.y - 15} textAnchor="middle">
+        <text
+          x={center.x}
+          y={center.y - 15}
+          textAnchor="middle"
+          fillOpacity={opacity}
+        >
           {text}
         </text>
       </g>
@@ -1775,27 +2280,31 @@ export default function App() {
   }
 
   const instructions =
-    tool === "fill"
-      ? t(
-          "拖动绘制矩形，逐点点击绘制多边形 · Enter 完成 / Backspace 退点 / Esc 取消",
-        )
-      : tool === "curve"
-        ? t("靠近矢量曲线高亮整段，点击记录长度")
-        : trackingActive
-          ? trackHit
-            ? t("已对齐参考点，点击确认正交落点")
-            : t("正交选点 · 悬停捕捉点获取智慧轨迹")
-          : tool === "calibrate"
-            ? anchor
-              ? t("选择已知尺寸的第二个端点")
-              : t("选择已知尺寸的第一个端点")
-            : tool === "measure"
-              ? anchor
-                ? t("选择第二点，完成一次测量")
-                : t("选择第一点，开始测量")
-              : tool === "pan"
-                ? t("拖动画布平移，⌘ / Ctrl + 滚轮缩放")
-                : t("点击标注以选择，可编辑备注或删除");
+    tool === "markup"
+      ? t("拖出文字框，在右侧输入批注 · 选择后拖动或调整控制点")
+      : tool === "revision"
+        ? t("拖出修订云线框，在右侧填写修订编号和说明")
+        : tool === "fill"
+          ? t(
+              "拖动绘制矩形，逐点点击绘制多边形 · Enter 完成 / Backspace 退点 / Esc 取消",
+            )
+          : tool === "curve"
+            ? t("靠近矢量曲线高亮整段，点击记录长度")
+            : trackingActive
+              ? trackHit
+                ? t("已对齐参考点，点击确认正交落点")
+                : t("正交选点 · 悬停捕捉点获取智慧轨迹")
+              : tool === "calibrate"
+                ? anchor
+                  ? t("选择已知尺寸的第二个端点")
+                  : t("选择已知尺寸的第一个端点")
+                : tool === "measure"
+                  ? anchor
+                    ? t("选择第二点，完成一次测量")
+                    : t("选择第一点，开始测量")
+                  : tool === "pan"
+                    ? t("拖动画布平移，⌘ / Ctrl + 滚轮缩放")
+                    : t("点击标注以选择，可编辑备注或删除");
 
   function buttonHint(id: CommandId) {
     const key = shortcuts.hint(id);
@@ -1848,7 +2357,7 @@ export default function App() {
             <img src="./dim-it-logo.png" alt="" width={32} height={32} />
           </span>
           <strong>Dim It</strong>
-          <span className="version">0.4.3</span>
+          <span className="version">{appVersion}</span>
         </div>
         <div className="document-title" title={document?.name}>
           {document ? (
@@ -1899,6 +2408,11 @@ export default function App() {
         className="toolbar"
         aria-label={t("图纸工具")}
         onClick={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest(".snap-settings")
+          )
+            return;
           if (event.detail > 0)
             requestAnimationFrame(() =>
               window.document
@@ -1929,9 +2443,10 @@ export default function App() {
           </button>
         </div>
         <span className="divider" />
-        <div className="toolgroup modes">
+        <div className="toolgroup modes drawing-tools">
           <button
             className={tool === "select" ? "active" : ""}
+            aria-label={t("选择")}
             onClick={() => void dispatchCommand("select")}
             disabled={!document}
             {...buttonHint("select")}
@@ -1942,6 +2457,7 @@ export default function App() {
           </button>
           <button
             className={tool === "pan" ? "active" : ""}
+            aria-label={t("平移")}
             onClick={() => void dispatchCommand("pan")}
             disabled={!document}
             {...buttonHint("pan")}
@@ -1981,7 +2497,7 @@ export default function App() {
             {shortcutBadge("curve")}
           </button>
         </div>
-        <div className="toolgroup">
+        <div className="toolgroup drawing-tools">
           <button
             className={tool === "fill" ? "active" : ""}
             disabled={!document}
@@ -1992,9 +2508,29 @@ export default function App() {
             {t("区域填色")}
             {shortcutBadge("fill")}
           </button>
+          <button
+            className={tool === "markup" ? "active" : ""}
+            disabled={!document}
+            onClick={() => void dispatchCommand("markup")}
+            {...buttonHint("markup")}
+          >
+            <Type size={18} />
+            {t("文字批注")}
+            {shortcutBadge("markup")}
+          </button>
+          <button
+            className={tool === "revision" ? "active" : ""}
+            disabled={!document}
+            onClick={() => void dispatchCommand("revision")}
+            {...buttonHint("revision")}
+          >
+            <Cloud size={18} />
+            {t("修订云线")}
+            {shortcutBadge("revision")}
+          </button>
         </div>
         <span className="divider" />
-        <div className="toolgroup">
+        <div className="toolgroup drawing-tools snap-control">
           <button
             className={snapEnabled ? "active snap-toggle" : "snap-toggle"}
             aria-label={t("对象捕捉")}
@@ -2007,6 +2543,28 @@ export default function App() {
             <span>{t("捕捉")}</span>
             {shortcutBadge("snap")}
           </button>
+          <button
+            className={`snap-settings-toggle ${snapSettingsOpen ? "active" : ""}`}
+            aria-label={t("捕捉设置")}
+            aria-expanded={snapSettingsOpen}
+            aria-haspopup="dialog"
+            aria-controls="snap-settings"
+            disabled={!ready || !!busy}
+            onClick={(event) => {
+              event.stopPropagation();
+              setSnapSettingsOpen((open) => !open);
+            }}
+          >
+            <ChevronDown size={14} />
+          </button>
+          {snapSettingsOpen && (
+            <SnapSettings
+              enabled={selectedSnapKinds}
+              warning={snapPreferences.warning}
+              onChange={changeSnapKinds}
+              onClose={() => setSnapSettingsOpen(false)}
+            />
+          )}
         </div>
         <div className="toolgroup">
           <button
@@ -2091,16 +2649,13 @@ export default function App() {
             {document ? (
               Array.from({ length: document.pdf.numPages }, (_, index) => (
                 <Thumbnail
-                  key={`${document.name}-${index}`}
+                  key={`${document.pdf.loadingTask.docId}-${index}`}
                   pdf={document.pdf}
                   page={index + 1}
                   active={page === index + 1}
                   calibrated={!!data.scales[index + 1]}
-                  count={
-                    data.measurements.filter((item) => item.page === index + 1)
-                      .length
-                  }
-                  onSelect={() => navigate(index + 1)}
+                  count={recordCounts.get(index + 1) ?? 0}
+                  onSelect={(event) => navigate(index + 1, event.detail > 0)}
                 />
               ))
             ) : (
@@ -2133,9 +2688,9 @@ export default function App() {
               <span
                 className={`snap-status ${snapStatus}`}
                 data-testid="snap-status"
-                title={t(
-                  "端点、直线中点和有限线段交点。按住 Alt 临时自由选点。",
-                )}
+                title={selectedSnapKinds
+                  .map((kind) => t(snapLabels[kind]))
+                  .join(" / ")}
               >
                 {tool === "curve"
                   ? snapStatus === "loading"
@@ -2143,13 +2698,19 @@ export default function App() {
                     : t`可测量曲线 ${snapContext?.index?.curves.paths.length || 0} 段`
                   : !snapEnabled
                     ? t("自由选点")
-                    : snapStatus === "loading"
-                      ? t("矢量捕捉准备中")
-                      : snapStatus === "empty"
-                        ? t("此页无矢量直线 · 手动选点")
-                        : snapStatus === "error"
-                          ? t("捕捉解析失败 · 手动选点")
-                          : t("端点 / 中点 / 交点捕捉")}
+                    : !selectedSnapKinds.length
+                      ? t("未选择捕捉类型 · 手动选点")
+                      : snapStatus === "loading"
+                        ? t("矢量捕捉准备中")
+                        : snapStatus === "empty"
+                          ? t("此页无矢量直线 · 手动选点")
+                          : snapStatus === "error"
+                            ? t("捕捉解析失败 · 手动选点")
+                            : selectedSnapKinds.length > 3
+                              ? t`已启用 ${selectedSnapKinds.length} 种捕捉`
+                              : t`${selectedSnapKinds
+                                  .map((kind) => t(snapLabels[kind]))
+                                  .join(" / ")}捕捉`}
               </span>
             )}
             <span className="canvas-bar-right">
@@ -2162,9 +2723,10 @@ export default function App() {
             ref={stage}
             className={`stage ${tool} ${space ? "space-pan" : ""}`}
             data-testid="stage"
+            tabIndex={-1}
           >
             {document ? (
-              <div className="paper-holder">
+              <div className="paper-holder" key={document.pdf.loadingTask.docId}>
                 <div
                   ref={paper}
                   className="paper"
@@ -2213,6 +2775,8 @@ export default function App() {
                         drag.current = null;
                         regionGesture.current = null;
                         setRegionPreview(null);
+                        annotationGesture.current = null;
+                        setAnnotationPreview(null);
                         setTrackingCandidate(null);
                         setTrackHit(null);
                       }}
@@ -2228,11 +2792,7 @@ export default function App() {
                       }}
                     >
                       <RegionLayer
-                        regions={pageRegions.map((region) =>
-                          region.id === selected && opacityPreview !== null
-                            ? { ...region, opacity: opacityPreview }
-                            : region,
-                        )}
+                        regions={pageRegions.map(withAppearancePreview)}
                         selected={selected}
                         preview={regionPreview}
                         draft={regionDraft}
@@ -2348,26 +2908,30 @@ export default function App() {
                             data.unit,
                             data.precision,
                           ),
-                          color,
+                          measurementStyle.color,
                           "curve-preview",
                           true,
                           curveHit,
+                          measurementStyle.opacity,
                         )}
-                      {pageMeasurements.map((item) =>
-                        dimension(
-                          item.a,
-                          item.b,
-                          formatDistance(
-                            measurementMM(item, data)!,
-                            data.unit,
-                            data.precision,
+                      {pageMeasurements
+                        .map(withAppearancePreview)
+                        .map((item) =>
+                          dimension(
+                            item.a,
+                            item.b,
+                            formatDistance(
+                              measurementMM(item, data)!,
+                              data.unit,
+                              data.precision,
+                            ),
+                            item.color,
+                            item.id,
+                            false,
+                            item.path,
+                            item.opacity,
                           ),
-                          item.color,
-                          item.id,
-                          false,
-                          item.path,
-                        ),
-                      )}
+                        )}
                       {anchor &&
                         cursor &&
                         dimension(
@@ -2381,9 +2945,13 @@ export default function App() {
                                 data.unit,
                                 data.precision,
                               ),
-                          tool === "calibrate" ? "#d08a18" : color,
+                          tool === "calibrate"
+                            ? "#d08a18"
+                            : measurementStyle.color,
                           "preview",
                           true,
+                          undefined,
+                          tool === "calibrate" ? 1 : measurementStyle.opacity,
                         )}
                       {calibrationPoints &&
                         dimension(
@@ -2413,7 +2981,7 @@ export default function App() {
                         )}
                       {snapHit &&
                         snapScreen &&
-                        snapEnabled &&
+                        snapActive &&
                         !space &&
                         !altPressed &&
                         !calibrationPoints && (
@@ -2453,16 +3021,44 @@ export default function App() {
                                 d={`M${snapScreen.x - 5},${snapScreen.y - 5} l10,10 M${snapScreen.x - 5},${snapScreen.y + 5} l10,-10`}
                               />
                             )}
+                            {snapHit.kind === "nearest" && (
+                              <path
+                                className="snap-marker"
+                                d={`M${snapScreen.x - 5},${snapScreen.y - 6} l10,0 -10,12 10,0 Z`}
+                              />
+                            )}
+                            {snapHit.kind === "perpendicular" && (
+                              <path
+                                className="snap-marker"
+                                d={`M${snapScreen.x - 6},${snapScreen.y - 6} v12 h12 M${snapScreen.x - 6},${snapScreen.y} h6 v6`}
+                              />
+                            )}
+                            {snapHit.kind === "tangent" && (
+                              <g className="snap-marker">
+                                <circle
+                                  cx={snapScreen.x}
+                                  cy={snapScreen.y - 2}
+                                  r={5}
+                                />
+                                <path
+                                  d={`M${snapScreen.x - 8},${snapScreen.y + 3} h16`}
+                                />
+                              </g>
+                            )}
                             <g
-                              transform={`translate(${Math.max(4, Math.min(snapScreen.x + 17, viewport.width - 58))},${Math.max(4, Math.min(snapScreen.y - 28, viewport.height - 26))})`}
+                              transform={`translate(${Math.max(4, Math.min(snapScreen.x + 17, viewport.width - snapLabelWidth - 5))},${Math.max(4, Math.min(snapScreen.y - 28, viewport.height - 26))})`}
                             >
                               <rect
                                 className="snap-label"
-                                width={53}
+                                width={snapLabelWidth}
                                 height={23}
                                 rx={4}
                               />
-                              <text x={26.5} y={15.5} textAnchor="middle">
+                              <text
+                                x={snapLabelWidth / 2}
+                                y={15.5}
+                                textAnchor="middle"
+                              >
                                 {t(snapLabels[snapHit.kind])}
                               </text>
                             </g>
@@ -2504,6 +3100,16 @@ export default function App() {
                           onVertexDown={beginRegionVertex}
                         />
                       )}
+                      <AnnotationLayer
+                        annotations={pageAnnotations.map(withAppearancePreview)}
+                        selected={selected}
+                        preview={annotationPreview}
+                        screen={screen}
+                        zoom={viewport.scale}
+                        canSelect={tool === "select" && !space && !busy}
+                        onGesture={beginAnnotationGesture}
+                        onEdit={focusAnnotationEditor}
+                      />
                     </svg>
                   )}
                 </div>
@@ -2622,226 +3228,351 @@ export default function App() {
         </section>
         <aside className="inspector">
           <div className="panel-heading">
-            <span>{t("测量设置")}</span>
-            <Ruler size={15} />
+            <span>{annotationMode ? t("标注设置") : t("测量设置")}</span>
+            {annotationMode ? <Type size={15} /> : <Ruler size={15} />}
           </div>
-          <section className="settings-section">
-            <label htmlFor="unit">{t("显示单位")}</label>
-            <select
-              id="unit"
-              value={data.unit}
-              disabled={!document}
-              onChange={(event) =>
-                change({ ...data, unit: event.target.value as Unit })
-              }
-            >
-              {Object.entries(unitLabels).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {t(label)}
-                </option>
-              ))}
-            </select>
-            <div className="precision-row">
-              <label htmlFor="precision">
-                {data.unit === "ft-in" ? t("分数精度") : t("小数位数")}
-              </label>
-              {data.unit === "ft-in" ? (
-                <span>1/16 inch</span>
-              ) : (
-                <select
-                  id="precision"
-                  value={data.precision}
-                  disabled={!document}
-                  onChange={(event) =>
-                    change({ ...data, precision: Number(event.target.value) })
-                  }
-                >
-                  {[0, 1, 2, 3].map((value) => (
-                    <option key={value} value={value}>
-                      {value}
-                      {language === "zh" && t("位")}
-                    </option>
-                  ))}
-                </select>
-              )}
+          <section className="appearance-panel" aria-label={t("样式")}>
+            <div className="appearance-heading">
+              <h3>{t("样式")}</h3>
+              <span>{selectedAnnotation ? t("所选标注") : t("新建标注")}</span>
             </div>
-            <label>{t("标注颜色")}</label>
-            <div className="color-options">
+            {markupMode ? (
+              <>
+                <div className="annotation-settings">
+                  <label htmlFor="markup-font-size">{t("文字字号")}</label>
+                  <select
+                    id="markup-font-size"
+                    value={
+                      selectedDrawing?.kind === "markup"
+                        ? selectedDrawing.fontSize
+                        : markupFontSize
+                    }
+                    onChange={(event) => {
+                      const fontSize = Number(event.target.value);
+                      if (selectedDrawing?.kind === "markup")
+                        updateDrawingAnnotation(selectedDrawing, { fontSize });
+                      else setAppearanceDefaults((defaults) => ({ ...defaults, fontSize }));
+                    }}
+                  >
+                    {markupFontSizes.map((size) => (
+                      <option key={size} value={size}>
+                        {size} pt
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {markupChannels.map(([channel, label]) => (
+                  <AppearanceColor
+                    key={channel}
+                    id={`markup-${channel}`}
+                    label={label}
+                    active={channel === markupChannel}
+                    onActivate={() => setMarkupChannel(channel)}
+                    color={activeMarkupStyle[`${channel}Color`]}
+                    opacity={activeMarkupStyle[`${channel}Opacity`]}
+                    disabled={!document}
+                    onColor={(value) =>
+                      changeMarkupStyle({ [`${channel}Color`]: value })
+                    }
+                    onOpacity={(value) =>
+                      changeMarkupStyle({ [`${channel}Opacity`]: value }, true)
+                    }
+                    onCommit={commitAppearance}
+                  />
+                ))}
+              </>
+            ) : (
+              <AppearanceColor
+                id={fillMode ? "fill" : "annotation"}
+                label={t(fillMode ? "填充" : revisionMode ? "修订" : "尺寸")}
+                color={activeColor}
+                opacity={
+                  ("opacity" in activeAppearance
+                    ? activeAppearance.opacity
+                    : undefined) ?? 1
+                }
+                disabled={!document}
+                onColor={changeAppearanceColor}
+                onOpacity={(opacity) => changeAppearance({ opacity }, true)}
+                onCommit={commitAppearance}
+              />
+            )}
+            <div
+              className="color-options"
+              role="group"
+              aria-label={markupMode ? t`${markupChannelLabel}常用颜色` : t("常用颜色")}
+            >
               {colors.map((value) => (
                 <button
                   key={value}
                   aria-label={t`颜色 ${value}`}
-                  className={
-                    value ===
-                    (selectedRegion?.color ||
-                      (tool === "fill" ? fillStyle.color : color))
-                      ? "chosen"
-                      : ""
-                  }
+                  className={value === activeColor ? "chosen" : ""}
                   style={{ background: value }}
-                  onClick={() => {
-                    if (selectedRegion) {
-                      updateRegion({ ...selectedRegion, color: value });
-                      return;
-                    }
-                    if (tool === "fill") {
-                      setFillStyle((style) => ({ ...style, color: value }));
-                      return;
-                    }
-                    setColor(value);
-                    if (selectedMeasurement)
-                      change({
-                        ...data,
-                        measurements: data.measurements.map((item) =>
-                          item.id === selected
-                            ? { ...item, color: value }
-                            : item,
-                        ),
-                      });
-                  }}
+                  disabled={!document}
+                  onClick={() => changeAppearanceColor(value)}
                 >
-                  {value ===
-                    (selectedRegion?.color ||
-                      (tool === "fill" ? fillStyle.color : color)) && (
-                    <Check size={12} />
-                  )}
+                  {value === activeColor && <Check size={12} />}
                 </button>
               ))}
-            </div>
-          </section>
-          {(tool === "fill" || selectedRegion) && (
-            <section className="fill-settings">
-              <label htmlFor="fill-opacity">
-                {t("不透明度")}{" "}
-                {Math.round(
-                  (opacityPreview ??
-                    selectedRegion?.opacity ??
-                    fillStyle.opacity) * 100,
-                )}
-                %
-              </label>
-              <input
-                id="fill-opacity"
-                type="range"
-                min="0"
-                max="100"
-                value={Math.round(
-                  (opacityPreview ??
-                    selectedRegion?.opacity ??
-                    fillStyle.opacity) * 100,
-                )}
-                onChange={(event) => {
-                  const value = Number(event.target.value) / 100;
-                  if (selectedRegion) {
-                    opacityChange.current = { id: selectedRegion.id, value };
-                    setOpacityPreview(value);
-                  } else
-                    setFillStyle((style) => ({ ...style, opacity: value }));
-                }}
-                onPointerUp={commitOpacity}
-                onPointerCancel={commitOpacity}
-                onKeyUp={commitOpacity}
-                onBlur={commitOpacity}
-              />
-            </section>
-          )}
-          <section className="calibration-card">
-            <div className="section-title">
-              <Crosshair size={16} />
-              <strong>{t("比例校准")}</strong>
-              {scale && (
-                <span className="verified">
-                  <Check size={11} />
-                  {t("已校准")}
-                </span>
+              {!selectedAnnotation && (
+                <button
+                  className="appearance-reset"
+                  disabled={!document}
+                  onClick={() => {
+                    setAppearanceDefaults((defaults) =>
+                      markupMode
+                        ? { ...defaults, markup: factoryAppearance.markup, fontSize: factoryAppearance.fontSize }
+                        : { ...defaults, [styleKey]: factoryAppearance[styleKey] },
+                    );
+                  }}
+                >
+                  {t("恢复默认")}
+                </button>
               )}
             </div>
-            {scale ? (
-              <>
-                <div className="reference-value">
-                  {formatDistance(scale.millimeters, data.unit, data.precision)}
-                </div>
-                <p>{t("参考线实际尺寸 · 仅作用于当前页")}</p>
-                <button
-                  className="subtle-button"
-                  onClick={() => void dispatchCommand("calibrate")}
-                  {...buttonHint("calibrate")}
-                >
-                  {t("重新校准")}
-                  {shortcutBadge("calibrate")}
-                </button>
-                <small className="recalculate-note">
-                  {t("重新校准会同步重算本页测量。")}
-                </small>
-              </>
-            ) : (
-              <>
-                <p>{t("选取图纸上有明确尺寸标注的两点，输入实际距离。")}</p>
-                <button
-                  className="subtle-button"
-                  disabled={!document}
-                  onClick={() => void dispatchCommand("calibrate")}
-                  {...buttonHint("calibrate")}
-                >
-                  <Crosshair size={14} />
-                  {t("校准当前页")}
-                  {shortcutBadge("calibrate")}
-                </button>
-              </>
-            )}
           </section>
+          {!annotationMode && (
+            <section className="settings-section">
+              <label htmlFor="unit">{t("显示单位")}</label>
+              <select
+                id="unit"
+                value={data.unit}
+                disabled={!document}
+                onChange={(event) =>
+                  change({ ...data, unit: event.target.value as Unit })
+                }
+              >
+                {Object.entries(unitLabels).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {t(label)}
+                  </option>
+                ))}
+              </select>
+              <div className="precision-row">
+                <label htmlFor="precision">
+                  {data.unit === "ft-in" ? t("分数精度") : t("小数位数")}
+                </label>
+                {data.unit === "ft-in" ? (
+                  <span>1/16 inch</span>
+                ) : (
+                  <select
+                    id="precision"
+                    value={data.precision}
+                    disabled={!document}
+                    onChange={(event) =>
+                      change({
+                        ...data,
+                        precision: Number(event.target.value),
+                      })
+                    }
+                  >
+                    {[0, 1, 2, 3].map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                        {language === "zh" && t("位")}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </section>
+          )}
+          {selectedDrawing && (
+            <div
+              className="selection-editor drawing-editor"
+              key={selectedDrawing.id}
+            >
+              <div>
+                <label
+                  htmlFor={
+                    selectedDrawing.kind === "revision"
+                      ? "revision-label"
+                      : "note"
+                  }
+                >
+                  {selectedDrawing.kind === "markup"
+                    ? t("批注文字")
+                    : t("修订编号")}
+                </label>
+                <button
+                  className="icon-button danger"
+                  onClick={() => void dispatchCommand("delete")}
+                  aria-label={t("删除标注")}
+                  {...buttonHint("delete")}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+              {selectedDrawing.kind === "revision" && (
+                <input
+                  id="revision-label"
+                  key={selectedDrawing.id + selectedDrawing.label}
+                  defaultValue={selectedDrawing.label}
+                  maxLength={8}
+                  onBlur={(event) => {
+                    if (
+                      !updateDrawingAnnotation(selectedDrawing, {
+                        label: event.currentTarget.value,
+                      })
+                    )
+                      event.currentTarget.value = selectedDrawing.label;
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                    if (event.key === "Escape") {
+                      event.stopPropagation();
+                      event.currentTarget.value = selectedDrawing.label;
+                      event.currentTarget.blur();
+                    }
+                  }}
+                />
+              )}
+              {selectedDrawing.kind === "revision" && (
+                <label htmlFor="note">{t("修订说明")}</label>
+              )}
+              <textarea
+                id="note"
+                key={selectedDrawing.id + selectedDrawing.note}
+                aria-label={
+                  selectedDrawing.kind === "markup"
+                    ? t("批注文字")
+                    : t("修订说明")
+                }
+                defaultValue={selectedDrawing.note}
+                rows={4}
+                maxLength={4000}
+                placeholder={t("输入批注文字")}
+                onBlur={(event) => {
+                  if (
+                    !updateDrawingAnnotation(selectedDrawing, {
+                      note: event.currentTarget.value,
+                    })
+                  )
+                    event.currentTarget.focus();
+                }}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing) return;
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey)
+                  ) {
+                    event.stopPropagation();
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === "Escape") {
+                    event.stopPropagation();
+                    event.currentTarget.value = selectedDrawing.note;
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            </div>
+          )}
+          {!annotationMode && (
+            <section className="calibration-card">
+              <div className="section-title">
+                <Crosshair size={16} />
+                <strong>{t("比例校准")}</strong>
+                {scale && (
+                  <span className="verified">
+                    <Check size={11} />
+                    {t("已校准")}
+                  </span>
+                )}
+              </div>
+              {scale ? (
+                <>
+                  <div className="reference-value">
+                    {formatDistance(
+                      scale.millimeters,
+                      data.unit,
+                      data.precision,
+                    )}
+                  </div>
+                  <p>{t("参考线实际尺寸 · 仅作用于当前页")}</p>
+                  <button
+                    className="subtle-button"
+                    onClick={() => void dispatchCommand("calibrate")}
+                    {...buttonHint("calibrate")}
+                  >
+                    {t("重新校准")}
+                    {shortcutBadge("calibrate")}
+                  </button>
+                  <small className="recalculate-note">
+                    {t("重新校准会同步重算本页测量。")}
+                  </small>
+                </>
+              ) : (
+                <>
+                  <p>{t("选取图纸上有明确尺寸标注的两点，输入实际距离。")}</p>
+                  <button
+                    className="subtle-button"
+                    disabled={!document}
+                    onClick={() => void dispatchCommand("calibrate")}
+                    {...buttonHint("calibrate")}
+                  >
+                    <Crosshair size={14} />
+                    {t("校准当前页")}
+                    {shortcutBadge("calibrate")}
+                  </button>
+                </>
+              )}
+            </section>
+          )}
           <div className="panel-heading list-heading">
             <span>
-              {t("测量记录")}
-              <small>{pageMeasurements.length}</small>
+              {t("标注记录")}
+              <small>{recordCounts.get(page) ?? 0}</small>
             </span>
             <span className="list-scope">{t("当前页")}</span>
           </div>
           <div className="measurements-list">
-            {pageMeasurements.length
-              ? pageMeasurements.map((item) => {
-                  const index = data.measurements.indexOf(item) + 1;
-                  return (
-                    <button
-                      className={`measurement-row ${selected === item.id ? "selected" : ""}`}
-                      key={item.id}
-                      onClick={() => {
-                        setSelected(item.id);
-                        setTool("select");
-                      }}
-                    >
-                      <span
-                        className="measurement-index"
-                        style={{ color: item.color }}
-                      >
-                        {String(index).padStart(2, "0")}
-                      </span>
-                      <span>
-                        <strong>
-                          {formatDistance(
-                            measurementMM(item, data)!,
-                            data.unit,
-                            data.precision,
-                          )}
-                        </strong>
-                        <small>
-                          {item.note ||
-                            (item.path ? t("曲线长度") : t("长度测量"))}
-                        </small>
-                      </span>
-                      <Ruler size={14} />
-                    </button>
-                  );
-                })
-              : !pageRegions.length && (
+            {pageMeasurements.length ? (
+                <div className="region-records">
+                  <div className="panel-heading">
+                    {t("测量记录")}
+                    <small>{pageMeasurements.length}</small>
+                  </div>
+                  {pageMeasurements.map((item) => {
+                      const index = measurementNumbers.get(item.id) ?? 0;
+                      return (
+                        <button
+                          className={`measurement-row ${selected === item.id ? "selected" : ""}`}
+                          key={item.id}
+                          onClick={() => {
+                            setSelected(item.id);
+                            setTool("select");
+                          }}
+                        >
+                          <span
+                            className="measurement-index"
+                            style={{ color: item.color }}
+                          >
+                            {String(index).padStart(2, "0")}
+                          </span>
+                          <span>
+                            <strong>
+                              {formatDistance(
+                                measurementMM(item, data)!,
+                                data.unit,
+                                data.precision,
+                              )}
+                            </strong>
+                            <small>
+                              {item.note ||
+                                (item.path ? t("曲线长度") : t("长度测量"))}
+                            </small>
+                          </span>
+                          <Ruler size={14} />
+                        </button>
+                      );
+                  })}
+                </div>
+              ) : !pageRegions.length &&
+                !pageAnnotations.length && (
                   <div className="records-empty">
                     <Ruler size={29} strokeWidth={1.2} />
-                    <strong>{t("等待第一条测量")}</strong>
-                    <p>
-                      {scale
-                        ? t("点击「长度测量」，在图纸上选取两个端点。")
-                        : t("完成比例校准后，即可在图纸上连续测量。")}
-                    </p>
+                    <strong>{t("当前页还没有标注")}</strong>
                   </div>
                 )}
             {!!pageRegions.length && (
@@ -2877,8 +3608,39 @@ export default function App() {
                 ))}
               </div>
             )}
+            {!!pageAnnotations.length && (
+              <div className="annotation-records region-records">
+                <div className="panel-heading">
+                  {t("文字与修订")}
+                  <small>{pageAnnotations.length}</small>
+                </div>
+                {pageAnnotations.map((item) => (
+                  <button
+                    key={item.id}
+                    data-testid="annotation-row"
+                    className={`region-row ${selected === item.id ? "selected" : ""}`}
+                    onClick={() => {
+                      setSelected(item.id);
+                      setTool("select");
+                    }}
+                  >
+                    {item.kind === "markup" ? (
+                      <Type size={16} style={{ color: item.color }} />
+                    ) : (
+                      <Cloud size={16} style={{ color: item.color }} />
+                    )}
+                    <span>
+                      {item.kind === "markup"
+                        ? t("文字批注")
+                        : `${t("修订")} ${item.label}`}
+                      <small>{item.note || t("输入批注文字")}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          {selectedAnnotation && (
+          {selectedAnnotation && !selectedDrawing && (
             <div className="selection-editor">
               <div>
                 <label htmlFor="note">{t("标注备注")}</label>
@@ -2931,6 +3693,12 @@ export default function App() {
             <b>
               {t`${data.measurements.length} 条测量`} · {data.regions.length}{" "}
               {t("区域")}
+              {!!data.annotations.length && (
+                <>
+                  {" "}
+                  · {data.annotations.length} {t("批注")}
+                </>
+              )}
             </b>
             <span>{t("整份图纸")}</span>
           </div>
@@ -2947,7 +3715,9 @@ export default function App() {
         {document && (
           <div className="page-navigation">
             <button
-              onClick={() => void dispatchCommand("prevPage")}
+              onClick={(event) =>
+                void dispatchCommand("prevPage", event.detail > 0)
+              }
               disabled={page <= 1}
               aria-label={t("上一页")}
               {...buttonHint("prevPage")}
@@ -2958,7 +3728,9 @@ export default function App() {
               {page} / {document.pdf.numPages}
             </span>
             <button
-              onClick={() => void dispatchCommand("nextPage")}
+              onClick={(event) =>
+                void dispatchCommand("nextPage", event.detail > 0)
+              }
               disabled={page >= document.pdf.numPages}
               aria-label={t("下一页")}
               {...buttonHint("nextPage")}

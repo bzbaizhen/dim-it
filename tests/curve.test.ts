@@ -165,3 +165,41 @@ test("curve projects validate endpoints, retain legacy lines and recalculate pat
   delete d.measurements[0].path;
   assert.equal(measurementMM(validateData(d, 1).measurements[0], d), 2000);
 });
+
+test("real PDF operators retain native cubic controls and transformed Forms for precision snapping", async () => {
+  const task = getDocument({
+    data: new Uint8Array(await readFile("tests/fixtures/curves.pdf")),
+  });
+  try {
+    const doc = await task.promise;
+    const paths: Point[][] = [],
+      native: Point[][] = [],
+      transformed: Point[][] = [];
+    extractSegments(
+      await (await doc.getPage(1)).getOperatorList(),
+      OPS,
+      paths,
+      native,
+    );
+    extractSegments(
+      await (await doc.getPage(4)).getOperatorList(),
+      OPS,
+      undefined,
+      transformed,
+    );
+    assert.ok(native.length >= paths.length);
+    assert.equal(native[0].length, 4);
+    assert.equal(transformed.length, native.length);
+    for (let i = 0; i < native.length; i++)
+      for (let j = 0; j < native[i].length; j++) {
+        assert.ok(
+          Math.abs(transformed[i][j].x - (native[i][j].x * 0.5 + 20)) < 1e-5,
+        );
+        assert.ok(
+          Math.abs(transformed[i][j].y - (native[i][j].y * 0.8 + 30)) < 1e-5,
+        );
+      }
+  } finally {
+    await task.destroy();
+  }
+});

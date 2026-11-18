@@ -7,6 +7,9 @@ import { PDFDocument, PDFName } from "pdf-lib";
 
 const profile = await mkdtemp(path.join(tmpdir(), "dimit-regions-"));
 const results = path.resolve("test-results");
+const packageVersion = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 await mkdir(results, { recursive: true });
 const executablePath = process.env.PLANMEASURE_EXECUTABLE;
 const app = await electron.launch({
@@ -97,7 +100,7 @@ async function currentData() {
             q = db
               .transaction("projects")
               .objectStore("projects")
-              .get("current");
+              .get("current-state");
           q.onsuccess = () => {
             resolve(q.result.data);
             db.close();
@@ -167,6 +170,38 @@ try {
   console.log(
     `PASS Tab toggles actual PDF stroke pixels (${thick}→${thin}) and restores the original rendering`,
   );
+  // Open a second copy of the drawing through the toolbar while thin lines are on.
+  const switchedFile = path.join(profile, "Thin-line-switch.pdf");
+  const originalPdf = await page.evaluate(() =>
+    new Promise((resolve, reject) => {
+      const open = indexedDB.open("planmeasure-local", 1);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        const request = db.transaction("projects").objectStore("projects").get("current");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          resolve(Array.from(request.result.bytes));
+          db.close();
+        };
+      };
+    }),
+  );
+  await writeFile(switchedFile, Buffer.from(originalPdf));
+  await press("Tab");
+  await settled();
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] });
+  }, switchedFile);
+  await page.getByRole("button", { name: "打开图纸", exact: true }).click();
+  await page.getByText("Thin-line-switch.pdf", { exact: true }).waitFor();
+  await settled();
+  assert.equal(await lineInk(), thin);
+  await press("Tab");
+  await settled();
+  assert.equal(await page.getByTestId("paper").getAttribute("data-thin-lines"), "false");
+  assert.equal(await lineInk(), thick, "New drawing restores actual stroke widths when Tab turns thin lines off");
+  console.log("PASS replacing the PDF while thin lines are on preserves the setting and restores actual widths on Tab");
   // Keep native OS pointer events from interrupting deterministic hover/drag tests.
   await app.evaluate(({ BrowserWindow }) => {
     const testWindow = BrowserWindow.getAllWindows()[0];
@@ -420,7 +455,7 @@ try {
   const pdf = await save("pdf", "e");
   const parsed = await PDFDocument.load(pdf.bytes, { updateMetadata: false });
   assert.equal(parsed.getPageCount(), 2);
-  assert.equal(parsed.getProducer(), "Dim It 0.4.3");
+  assert.equal(parsed.getProducer(), `Dim It ${packageVersion}`);
   const states = parsed
     .getPage(0)
     .node.Resources()

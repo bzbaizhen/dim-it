@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { flattenBezier, pathMidpoint } from "../src/curve.ts";
 import { OPS, getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   extractSegments,
@@ -197,4 +198,305 @@ test("real PDF.js operator list produces exact fixture snap coordinates", async 
   } finally {
     await task.destroy();
   }
+});
+
+test("snap filters generate only enabled candidates and anchor-dependent modes require an anchor", () => {
+  const index = new SnapIndex(lines, bounds);
+  assert.equal(
+    index.nearest({ x: 100, y: 100 }, 10, undefined, { enabled: [] }),
+    null,
+  );
+  assert.equal(
+    index.nearest({ x: 100, y: 100 }, 10, undefined, { enabled: ["midpoint"] }),
+    null,
+  );
+  assert.deepEqual(
+    index.nearest({ x: 270, y: 102 }, 5, undefined, { enabled: ["nearest"] }),
+    { kind: "nearest", point: { x: 270, y: 100 } },
+  );
+  for (const kind of ["perpendicular", "tangent"] as const)
+    assert.equal(
+      index.nearest({ x: 270, y: 100 }, 10, undefined, { enabled: [kind] }),
+      null,
+    );
+  assert.deepEqual(
+    index.nearest({ x: 270, y: 102 }, 5, undefined, {
+      enabled: ["perpendicular"],
+      anchor: { x: 270, y: 200 },
+    }),
+    { kind: "perpendicular", point: { x: 270, y: 100 } },
+  );
+  assert.equal(
+    index.nearest({ x: 400, y: 100 }, 5, undefined, {
+      enabled: ["perpendicular"],
+      anchor: { x: 450, y: 200 },
+    }),
+    null,
+  );
+  assert.equal(
+    index.nearest(
+      { x: 270, y: 102 },
+      5,
+      { coordinate: "y", value: 102 },
+      { enabled: ["nearest"] },
+    ),
+    null,
+  );
+  assert.equal(
+    index.nearest({ x: 100, y: 100 }, NaN, undefined, { enabled: ["nearest"] }),
+    null,
+  );
+});
+
+test("Bezier snapping uses native curves for nearest, perpendicular and multiple true tangencies", () => {
+  // B(t) = (100t, 100t²). From (50, 0), tangent roots are t = 0 and 1.
+  const controls = [
+    { x: 0, y: 0 },
+    { x: 50, y: 0 },
+    { x: 100, y: 100 },
+  ];
+  const index = new SnapIndex([], bounds, [], [controls]);
+  for (const point of [controls[0], controls[2]]) {
+    const hit = index.nearest(point, 2, undefined, {
+      enabled: ["tangent"],
+      anchor: { x: 50, y: 0 },
+    });
+    assert.equal(hit?.kind, "tangent");
+    assert.ok(
+      Math.hypot(hit!.point.x - point.x, hit!.point.y - point.y) < 1e-6,
+    );
+  }
+  const middle = { x: 50, y: 25 };
+  const anchor = { x: 40, y: 35 };
+  for (const kind of ["nearest", "perpendicular"] as const) {
+    const hit = index.nearest(
+      kind === "nearest" ? anchor : middle,
+      20,
+      undefined,
+      { enabled: [kind], anchor },
+    );
+    assert.equal(hit?.kind, kind);
+    assert.ok(
+      Math.hypot(hit!.point.x - middle.x, hit!.point.y - middle.y) < 1e-6,
+    );
+  }
+  assert.equal(
+    index.nearest(middle, 2, undefined, {
+      enabled: ["tangent"],
+      anchor: { x: 50, y: 40 },
+    }),
+    null,
+  );
+  assert.equal(
+    index.nearest(middle, 2, undefined, { enabled: ["endpoint"] }),
+    null,
+  );
+  assert.equal(index.nearest(controls[0], 2)?.kind, "endpoint");
+  assert.equal(index.nearest(controls[2], 2)?.kind, "endpoint");
+  const degenerate = new SnapIndex([], bounds, [], [[middle, middle, middle]]);
+  assert.equal(
+    degenerate.nearest(middle, 2, undefined, { enabled: ["tangent"], anchor }),
+    null,
+  );
+});
+
+test("nearest remains a fallback when any discrete candidate is inside the radius", () => {
+  const index = new SnapIndex(lines, bounds);
+  assert.equal(
+    index.nearest({ x: 104, y: 100 }, 10, undefined, {
+      enabled: ["nearest", "endpoint"],
+    })?.kind,
+    "endpoint",
+  );
+  assert.equal(
+    index.nearest({ x: 324, y: 100 }, 10, undefined, {
+      enabled: ["nearest", "intersection"],
+    })?.kind,
+    "intersection",
+  );
+  assert.equal(
+    index.nearest({ x: 254, y: 100 }, 10, undefined, {
+      enabled: ["nearest", "midpoint"],
+    })?.kind,
+    "midpoint",
+  );
+  assert.equal(
+    index.nearest({ x: 270, y: 100 }, 10, undefined, {
+      enabled: ["nearest", "endpoint"],
+    })?.kind,
+    "nearest",
+  );
+});
+
+test("cubic repeated and multiple tangent roots survive numerical isolation", () => {
+  const repeated = [
+    { x: 0, y: 37.5 },
+    { x: 100 / 3, y: 62.5 },
+    { x: 200 / 3, y: 37.5 },
+    { x: 100, y: 62.5 },
+  ];
+  const index = new SnapIndex([], bounds, [], [repeated]);
+  const hit = index.nearest({ x: 50, y: 50 }, 1, undefined, {
+    enabled: ["tangent"],
+    anchor: { x: 0, y: 50 },
+  });
+  assert.ok(hit);
+  assert.ok(Math.hypot(hit.point.x - 50, hit.point.y - 50) < 1e-6);
+  const cubic = [
+    { x: 0, y: 0 },
+    { x: 100 / 3, y: 0 },
+    { x: 200 / 3, y: 0 },
+    { x: 100, y: 100 },
+  ];
+  const multi = new SnapIndex([], bounds, [], [cubic]);
+  for (const point of [
+    { x: 0, y: 0 },
+    { x: 75, y: 42.1875 },
+  ]) {
+    const result = multi.nearest(point, 1, undefined, {
+      enabled: ["tangent"],
+      anchor: { x: 50, y: 0 },
+    });
+    assert.ok(result);
+    assert.ok(
+      Math.hypot(result.point.x - point.x, result.point.y - point.y) < 1e-6,
+    );
+  }
+});
+
+test("transformed native tangencies and perpendiculars use page-space geometry", () => {
+  // Rotate 90 degrees after a non-uniform scale, then translate into the page.
+  const transform = (p: { x: number; y: number }) => ({
+    x: 300 - 3 * p.y,
+    y: 20 + 2 * p.x,
+  });
+  const controls = [
+    { x: 0, y: 0 },
+    { x: 50, y: 0 },
+    { x: 100, y: 100 },
+  ].map(transform);
+  const index = new SnapIndex([], bounds, [], [controls]);
+  const tangent = index.nearest(transform({ x: 100, y: 100 }), 2, undefined, {
+    enabled: ["tangent"],
+    anchor: transform({ x: 50, y: 0 }),
+  });
+  assert.ok(tangent);
+  const foot = transform({ x: 50, y: 25 });
+  // Page-space tangent at t=.5 is (-300,200), so (20,30) is normal.
+  const anchor = { x: foot.x + 20, y: foot.y + 30 };
+  const perpendicular = index.nearest(foot, 2, undefined, {
+    enabled: ["perpendicular"],
+    anchor,
+  });
+  assert.ok(perpendicular);
+  assert.ok(
+    Math.hypot(perpendicular.point.x - foot.x, perpendicular.point.y - foot.y) <
+      1e-6,
+  );
+  assert.equal(
+    index.nearest(
+      foot,
+      2,
+      { coordinate: "x", value: foot.x + 1 },
+      { enabled: ["perpendicular"], anchor },
+    ),
+    null,
+  );
+  const outside = new SnapIndex(
+    [],
+    [0, 0, 10, 10],
+    [],
+    [
+      [
+        { x: 20, y: 20 },
+        { x: 30, y: 30 },
+        { x: 40, y: 20 },
+      ],
+    ],
+  );
+  assert.equal(
+    outside.nearest({ x: 20, y: 20 }, 100, undefined, {
+      enabled: ["endpoint", "nearest"],
+    }),
+    null,
+  );
+  assert.equal(index.nearest({ x: Infinity, y: 0 }, 5), null);
+});
+
+test("curve midpoint uses half the full arc length and flattened vertices are never endpoints", () => {
+  const controls = [
+    { x: 10, y: 10 },
+    { x: 20, y: 180 },
+    { x: 160, y: 10 },
+  ];
+  const path = flattenBezier(controls);
+  const middle = pathMidpoint(path);
+  const index = new SnapIndex([], bounds, [path], [controls]);
+  assert.equal(index.nearest(middle, 0.01)?.kind, "midpoint");
+  assert.equal(
+    index.nearest(path[Math.floor(path.length / 4)], 0.01, undefined, {
+      enabled: ["endpoint"],
+    }),
+    null,
+  );
+  const legacy = new SnapIndex([], bounds, [path]);
+  assert.equal(
+    legacy.nearest(path[100], 1, undefined, { enabled: ["nearest"] })?.kind,
+    "nearest",
+  );
+  assert.equal(index.nearest({ x: 1, y: 1 }, 0), null);
+  assert.equal(new SnapIndex([], bounds).nearest({ x: 10, y: 10 }, 10), null);
+});
+
+test("quadratic operator controls are transformed without depending on flattened output", () => {
+  const native: { x: number; y: number }[][] = [];
+  extractSegments(
+    {
+      fnArray: [OPS.transform, OPS.constructPath],
+      argsArray: [
+        [0, 2, -3, 0, 300, 20],
+        [OPS.stroke, [[0, 0, 0, 3, 50, 0, 100, 100]], []],
+      ],
+    },
+    OPS,
+    undefined,
+    native,
+  );
+  assert.deepEqual(native, [
+    [
+      { x: 300, y: 20 },
+      { x: 300, y: 120 },
+      { x: 0, y: 220 },
+    ],
+  ]);
+});
+
+test("zero endpoint derivatives use the limiting tangent and reject spurious stationary roots", () => {
+  const controls = [
+    { x: 20, y: 20 },
+    { x: 20, y: 20 },
+    { x: 100, y: 100 },
+  ];
+  const index = new SnapIndex([], bounds, [], [controls]);
+  assert.equal(
+    index.nearest(controls[0], 1, undefined, {
+      enabled: ["tangent"],
+      anchor: { x: 10, y: 10 },
+    })?.kind,
+    "tangent",
+  );
+  assert.equal(
+    index.nearest(controls[0], 1, undefined, {
+      enabled: ["tangent"],
+      anchor: { x: 10, y: 20 },
+    }),
+    null,
+  );
+  assert.equal(
+    index.nearest(controls[0], 1, undefined, {
+      enabled: ["perpendicular"],
+      anchor: { x: 10, y: 20 },
+    }),
+    null,
+  );
 });

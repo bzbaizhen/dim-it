@@ -14,7 +14,9 @@ English · [简体中文](README.md) · [Download the latest release](https://gi
 
 ## Download and install
 
-Choose the installer for your platform from Releases. The current version is **0.4.3**. [Download the latest release](https://github.com/bzbaizhen/dim-it/releases/latest)
+Choose the installer for your platform from Releases. The current stable version is **0.4.3**. [Download the latest release](https://github.com/bzbaizhen/dim-it/releases/latest)
+
+[Try 0.5.0-beta.9](https://github.com/bzbaizhen/dim-it/releases/tag/v0.5.0-beta.9) for text markup, revision clouds and configurable snaps.
 
 | Platform | Installation | Signing status |
 | --- | --- | --- |
@@ -38,8 +40,9 @@ Press **3** to start a region fill directly. Switch **简体中文 / English** a
 | --- | --- |
 | Length measurement | Measure between two points, pick whole vector arcs and curves, or measure a closed curve's perimeter |
 | Calibration and units | Calibrate each page independently and use mm, inches, feet or fractional feet/inches |
-| Snapping and alignment | Highlight endpoints, midpoints and intersections, with Shift orthogonal constraints and SmartTrack guides |
+| Snapping and alignment | Choose End, Mid, Int, Near, Perp and Tan, with Shift orthogonal constraints and SmartTrack guides |
 | Region fills | Drag rectangles or click polygon vertices, then edit color, opacity, notes and vertices |
+| Text and revisions | Add multiline text boxes and numbered revision clouds, move or resize them, and export to PDF |
 | Drawing navigation | Change pages, pan, zoom, rotate and toggle uniform thin lines with Tab |
 | Annotation editing | Add notes, change colors, select, delete, undo and redo |
 | Faster operation | Customize shortcuts and see current bindings in button tooltips and native menus |
@@ -77,6 +80,7 @@ See the guide for detailed picking, closing, vertex editing and shortcut setting
 | Action | Default |
 | --- | --- |
 | Line / Curve / Fill / Calibrate | 1 / 2 / 3 / 4 |
+| Text markup / Revision cloud | 5 / 6 |
 | Previous / Next page | A / D, or PageUp / PageDown |
 | Fit page / 100% | F / G |
 | Zoom out / In | Z / X, or − / + |
@@ -96,8 +100,8 @@ Drawing processing and project recovery happen locally. Measurement and annotati
 
 | Format | Purpose | Contents |
 | --- | --- | --- |
-| `.planmeasure` | Save work for continued editing | Original PDF, page scales, measurements, fills and notes |
-| PDF | Share or print annotated results | Drawing with dimensions and fills drawn onto the pages |
+| `.planmeasure` | Save work for continued editing | Original PDF, page scales, measurements, fills, text, revisions and notes |
+| PDF | Share or print annotated results | Drawing with dimensions, fills, text boxes, clouds and revision labels |
 | CSV | Organize a dimension list | Lengths, millimeter values and notes |
 
 Local recovery retains the most recent work. Save your project before switching drawings. Documentation screenshots use generated geometry and the built-in demo.

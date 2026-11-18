@@ -87,3 +87,30 @@ curves
   .drawPage(form, { x: 20, y: 30, xScale: 0.5, yScale: 0.8 });
 curves.addPage([600, 450]);
 await writeFile("tests/fixtures/curves.pdf", await curves.save());
+
+const snapModes = await PDFDocument.create();
+for (const rotation of [0, 90, 270]) {
+  const page = snapModes.addPage([600, 450]);
+  page.setRotation(degrees(rotation));
+  page.drawLine({
+    start: { x: 60, y: 40 },
+    end: { x: 260, y: 40 },
+    thickness: 1,
+  });
+  page.drawLine({
+    start: { x: 220, y: 20 },
+    end: { x: 220, y: 80 },
+    thickness: 1,
+  });
+  // Explicit cubic equivalent of a quadratic with an apex at native PDF (200, 200).
+  page.drawSvgPath(
+    "M 100 350 C 166.666667 216.666667 233.333333 216.666667 300 350",
+    {
+      x: 0,
+      y: 450,
+      borderWidth: 1,
+      borderColor: rgb(0.2, 0.3, 0.4),
+    },
+  );
+}
+await writeFile("tests/fixtures/snap-modes.pdf", await snapModes.save());

@@ -6,6 +6,59 @@ import path from "node:path";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { extractSegments } from "../src/snap.ts";
 import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { PDFDocument, PDFArray, decodePDFRawStream } from "pdf-lib";
+
+async function assertContinuousCurve(bytes, measurement) {
+  const pdf = await PDFDocument.load(bytes);
+  const page = pdf.getPage(measurement.page - 1);
+  const contents = page.node.Contents();
+  const streams =
+    contents instanceof PDFArray
+      ? contents.asArray().map((ref) => pdf.context.lookup(ref))
+      : [contents];
+  const operators = streams
+    .map((stream) =>
+      new TextDecoder().decode(decodePDFRawStream(stream).decode()),
+    )
+    .join("\n");
+  const paths = [
+    ...operators.matchAll(
+      /([-\d.e+]+) ([-\d.e+]+) m\n((?:[-\d.e+]+ [-\d.e+]+ l\n)+)S\n/g,
+    ),
+  ];
+  const expected = measurement.path;
+  const curve = paths.find((match) =>
+    match[3].trim().split("\n").length === expected.length - 1,
+  );
+  assert.ok(
+    curve,
+    "Curve must be one continuous native PDF path and one stroke",
+  );
+  const points = [
+    [Number(curve[1]), Number(curve[2])],
+    ...curve[3]
+      .trim()
+      .split("\n")
+      .map((line) => line.split(" ").slice(0, 2).map(Number)),
+  ];
+  for (let index = 0; index < expected.length; index++) {
+    assert.ok(Math.abs(points[index][0] - expected[index].x) < 1e-7);
+    assert.ok(Math.abs(points[index][1] - expected[index].y) < 1e-7);
+  }
+}
+
+// Recheck a saved artifact without launching Electron or rebuilding dist.
+if (process.env.CURVE_PDF_ONLY) {
+  const project = JSON.parse(
+    await readFile("test-results/curve.planmeasure", "utf8"),
+  );
+  await assertContinuousCurve(
+    await readFile(process.env.CURVE_PDF_ONLY),
+    project.data.measurements[0],
+  );
+  console.log("PASS continuous curve PDF operators and native coordinates");
+  process.exit(0);
+}
 const profile = await mkdtemp(path.join(tmpdir(), "dim-it-curve-"));
 const executablePath = process.env.PLANMEASURE_EXECUTABLE;
 const app = await electron.launch({
@@ -67,6 +120,8 @@ try {
   await page.getByRole("button", { name: "校准比例", exact: true }).waitFor();
   await calibrate();
   await page.keyboard.press("Digit2");
+  await page.getByRole("slider", { name: "尺寸不透明度", exact: true }).press("PageDown");
+  await page.getByLabel("尺寸颜色").fill("#198267");
   const p = await position(270.710678, 270.710678);
   await page.mouse.move(p.x, p.y);
   await page
@@ -89,6 +144,13 @@ try {
   await page.screenshot({ path: path.join(results, "curve-highlight.png") });
   await page.mouse.click(p.x, p.y);
   await settled();
+  assert.equal(
+    await page
+      .locator(".dimension:not(.preview) .dimension-line")
+      .first()
+      .getAttribute("stroke-opacity"),
+    "0.9",
+  );
   assert.match(
     await page.locator(".measurement-row").innerText(),
     /1,571.0 mm/,
@@ -117,6 +179,8 @@ try {
   );
   assert.equal(project.version, 2);
   assert.ok(project.data.measurements[0].path.length > 20);
+  assert.equal(project.data.measurements[0].opacity, 0.9);
+  assert.equal(project.data.measurements[0].color, "#198267");
   await page
     .getByTestId("file-input")
     .setInputFiles(path.join(results, "curve.planmeasure"));
@@ -142,6 +206,10 @@ try {
   await page
     .getByText("带标注 PDF 已导出，可在其他阅读器查看", { exact: true })
     .waitFor();
+  await assertContinuousCurve(
+    await readFile(path.join(results, "curve-measured.pdf")),
+    project.data.measurements[0],
+  );
   const task = getDocument({
     standardFontDataUrl:
       path.resolve("node_modules/pdfjs-dist/standard_fonts") + path.sep,

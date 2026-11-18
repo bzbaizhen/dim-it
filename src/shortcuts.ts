@@ -3,6 +3,8 @@ export type CommandId =
   | "measure"
   | "curve"
   | "fill"
+  | "markup"
+  | "revision"
   | "calibrate"
   | "select"
   | "pan"
@@ -61,6 +63,8 @@ export const commandRegistry: readonly Command[] = [
   command("measure", "tools", "长度测量", "Length"),
   command("curve", "tools", "曲线长度", "Curve length"),
   command("fill", "tools", "区域填色", "Region fill"),
+  command("markup", "tools", "文字批注", "Text markup"),
+  command("revision", "tools", "修订云线", "Revision cloud"),
   command("calibrate", "tools", "校准比例", "Calibrate"),
   command("select", "tools", "选择", "Select"),
   command("pan", "tools", "平移", "Pan"),
@@ -121,6 +125,8 @@ export function defaultBindings(isMac: boolean): ShortcutBindings {
     measure: ["Digit1"],
     curve: ["Digit2"],
     fill: ["Digit3"],
+    markup: ["Digit5"],
+    revision: ["Digit6"],
     calibrate: ["Digit4"],
     select: [],
     pan: [],
@@ -252,6 +258,16 @@ export function parseShortcutOverrides(
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
     throw new Error("Invalid shortcut preferences");
   const defaults = defaultBindings(isMac);
+  // Existing custom bindings take precedence over newly introduced defaults.
+  for (const id of ["markup", "revision"] as const) {
+    if (
+      !Object.hasOwn(parsed, id) &&
+      Object.values(parsed).some(
+        (value) => Array.isArray(value) && value.includes(defaults[id][0]),
+      )
+    )
+      defaults[id] = [];
+  }
   for (const [id, value] of Object.entries(parsed)) {
     if (
       !Object.hasOwn(defaults, id) ||

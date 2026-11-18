@@ -1,6 +1,8 @@
 import { pathLength } from "./curve.ts";
 import { t } from "./i18n.ts";
 import { isValidRegionGeometry, type RegionFill } from "./regions.ts";
+import type { DrawingAnnotation } from "./annotations.ts";
+import { validMarkupStyle } from "./annotations.ts";
 export type { RegionFill } from "./regions.ts";
 export type Unit = "mm" | "in" | "ft" | "ft-in";
 export type Point = { x: number; y: number };
@@ -18,11 +20,13 @@ export type Measurement = {
   path?: Point[];
   note: string;
   color: string;
+  opacity?: number;
 };
 export type ProjectData = {
   scales: Record<string, Calibration>;
   measurements: Measurement[];
   regions: RegionFill[];
+  annotations: DrawingAnnotation[];
   unit: Unit;
   precision: number;
   rotations: Record<string, number>;
@@ -32,6 +36,7 @@ export const initialData = (): ProjectData => ({
   scales: {},
   measurements: [],
   regions: [],
+  annotations: [],
   unit: "mm",
   precision: 1,
   rotations: {},
@@ -170,6 +175,8 @@ export function validateData(value: unknown, pageCount: number): ProjectData {
       typeof measurement.note !== "string" ||
       measurement.note.length > 1000 ||
       !/^#[0-9a-f]{6}$/i.test(measurement.color) ||
+      (measurement.opacity !== undefined &&
+        !validOpacity(measurement.opacity)) ||
       !scales[measurement.page]
     )
       throw new Error(t("项目标注数据无效"));
@@ -190,7 +197,10 @@ export function validateData(value: unknown, pageCount: number): ProjectData {
     ids.add(measurement.id);
   }
   const regions = data.regions === undefined ? [] : data.regions;
-  if (!Array.isArray(regions) || data.measurements.length + regions.length > 100000)
+  if (
+    !Array.isArray(regions) ||
+    data.measurements.length + regions.length > 100000
+  )
     throw new Error(t("项目区域数据无效"));
   for (const region of regions) {
     if (
@@ -201,10 +211,10 @@ export function validateData(value: unknown, pageCount: number): ProjectData {
       typeof region.note !== "string" ||
       region.note.length > 1000 ||
       !/^#[0-9a-f]{6}$/i.test(region.color) ||
-      !Number.isFinite(region.opacity) ||
-      region.opacity < 0 || region.opacity > 1 ||
+      !validOpacity(region.opacity) ||
       !isValidRegionGeometry(region)
-    ) throw new Error(t("项目区域数据无效"));
+    )
+      throw new Error(t("项目区域数据无效"));
     totalPathPoints += region.kind === "polygon" ? region.vertices.length : 4;
     if (totalPathPoints > 1000000) throw new Error(t("项目区域数据无效"));
     ids.add(region.id);
@@ -213,7 +223,49 @@ export function validateData(value: unknown, pageCount: number): ProjectData {
     if (!pageValid(Number(page)) || ![0, 90, 180, 270].includes(rotation))
       throw new Error(t("项目旋转设置无效"));
   }
-  return { ...data, scales, regions };
+  const annotations = data.annotations === undefined ? [] : data.annotations;
+  if (
+    !Array.isArray(annotations) ||
+    data.measurements.length + regions.length + annotations.length > 100000
+  )
+    throw new Error(t("项目文字或修订标注数据无效"));
+  for (const item of annotations) {
+    if (
+      !item ||
+      !pageValid(item.page) ||
+      typeof item.id !== "string" ||
+      ids.has(item.id) ||
+      !isPoint(item.origin) ||
+      !Number.isFinite(item.width) ||
+      item.width < 20 ||
+      item.width > 100000 ||
+      !Number.isFinite(item.height) ||
+      item.height < 20 ||
+      item.height > 100000 ||
+      ![0, 90, 180, 270].includes(item.rotation) ||
+      !/^#[0-9a-f]{6}$/i.test(item.color) ||
+      typeof item.note !== "string" ||
+      item.note.length > 4000 ||
+      (item.kind !== "markup" && item.kind !== "revision") ||
+      (item.kind === "markup" &&
+        (!Number.isFinite(item.fontSize) ||
+          item.fontSize < 8 ||
+          item.fontSize > 48 ||
+          (item.style !== undefined && !validMarkupStyle(item.style)))) ||
+      (item.kind === "revision" &&
+        (typeof item.label !== "string" ||
+          !item.label.trim() ||
+          item.label.length > 8 ||
+          (item.opacity !== undefined && !validOpacity(item.opacity))))
+    )
+      throw new Error(t("项目文字或修订标注数据无效"));
+    ids.add(item.id);
+  }
+  return { ...data, scales, regions, annotations };
+}
+
+function validOpacity(opacity: number): boolean {
+  return Number.isFinite(opacity) && opacity >= 0 && opacity <= 1;
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {

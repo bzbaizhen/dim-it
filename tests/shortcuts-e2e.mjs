@@ -275,10 +275,9 @@ try {
     exact: true,
   });
   assert.match(await lengthEnglish.getAttribute("title"), /⇧1/);
-  assert.match(
-    await lengthEnglish.locator(".button-shortcut").innerText(),
-    /⇧1/,
-  );
+  const lengthBadge = lengthEnglish.locator(".button-shortcut");
+  assert.ok(await lengthBadge.isVisible());
+  assert.match(await lengthBadge.innerText(), /⇧1/);
   const primary = await app.evaluate(
     ({ Menu }) =>
       Menu.getApplicationMenu().getMenuItemById("measure").accelerator,

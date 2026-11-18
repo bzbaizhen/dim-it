@@ -4,6 +4,7 @@ const {
   ipcMain,
   dialog,
   Menu,
+  screen,
   shell,
 } = require("electron");
 const { readFile, writeFile, rename, unlink } = require("node:fs/promises");
@@ -28,6 +29,8 @@ const commandIds = new Set([
   "measure",
   "curve",
   "fill",
+  "markup",
+  "revision",
   "calibrate",
   "select",
   "pan",
@@ -71,8 +74,25 @@ const filters = [{ name: "PDF / Dim It", extensions: ["pdf", "planmeasure"] }];
 
 function createWindow() {
   const icon = path.join(__dirname, "../dist/dim-it-logo.png");
+  const testDisplayId = process.env.DIMIT_TEST_DISPLAY;
+  const testDisplay = testDisplayId &&
+    screen.getAllDisplays().find((display) => display.id === Number(testDisplayId));
+  if (testDisplayId && (
+    !testDisplay || testDisplay.id === screen.getPrimaryDisplay().id ||
+    !process.argv.some((argument) => argument.startsWith("--user-data-dir="))
+  )) {
+    console.error("Dim It requires a secondary test display and an isolated profile.");
+    app.exit(1);
+    return;
+  }
+  if (testDisplay) app.setActivationPolicy("accessory");
   if (process.platform === "darwin") app.dock.setIcon(icon);
   window = new BrowserWindow({
+    ...(testDisplay && {
+      x: testDisplay.workArea.x + 24,
+      y: testDisplay.workArea.y + 24,
+      show: false,
+    }),
     width: 1480,
     height: 960,
     minWidth: 1000,
@@ -99,6 +119,14 @@ function createWindow() {
   });
   window.loadFile(path.join(__dirname, "../dist/index.html"));
   updateMenu("zh");
+  if (testDisplay) {
+    if (screen.getDisplayMatching(window.getBounds()).id !== testDisplay.id) {
+      app.exit(1);
+      return;
+    }
+    window.webContents.setBackgroundThrottling(false);
+    window.showInactive();
+  }
 }
 
 function updateMenu(language = menuLanguage) {
@@ -160,6 +188,8 @@ function updateMenu(language = menuLanguage) {
           "measure",
           "curve",
           "fill",
+          "markup",
+          "revision",
           "calibrate",
           "select",
           "pan",

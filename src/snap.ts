@@ -1,10 +1,23 @@
-import { flattenBezier, pathLength } from "./curve.ts";
+import {
+  bezierCandidates,
+  flattenBezier,
+  pathLength,
+  pathMidpoint,
+} from "./curve.ts";
 import type { Point } from "./core.ts";
 
 export type Segment = { a: Point; b: Point };
+export type SnapKind =
+  | "endpoint"
+  | "midpoint"
+  | "intersection"
+  | "nearest"
+  | "perpendicular"
+  | "tangent";
+export type SnapOptions = { enabled?: readonly SnapKind[]; anchor?: Point };
 export type SnapHit = {
   point: Point;
-  kind: "endpoint" | "midpoint" | "intersection";
+  kind: SnapKind;
 };
 export type OrthoConstraint = { coordinate: "x" | "y"; value: number };
 export type TrackHit = { point: Point; source: SnapHit };
@@ -60,6 +73,7 @@ export function extractSegments(
   list: OperatorList,
   ops: Operators,
   curves?: Point[][],
+  beziers?: Point[][],
 ): Segment[] {
   const segments: Segment[] = [];
   let matrix: Matrix = [1, 0, 0, 1, 0, 0];
@@ -118,7 +132,7 @@ export function extractSegments(
       };
       let current: Point | null = null;
       let start: Point | null = null;
-      for (let offset = 0; offset < path.length;) {
+      for (let offset = 0; offset < path.length; ) {
         const command = path[offset++];
         if (command === 0) {
           finishCurve();
@@ -134,16 +148,18 @@ export function extractSegments(
           for (let index = 0; index < (command === 2 ? 3 : 2); index++)
             controls.push(transform(path[offset++], path[offset++]));
           if (
-            curves &&
             current &&
             [current, ...controls].every(
               (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
             )
           ) {
-            const points = flattenBezier([current, ...controls]);
-            if (!curve.length) curve.push(current);
-            for (let index = 1; index < points.length; index++)
-              curve.push(points[index]);
+            beziers?.push([current, ...controls]);
+            if (curves) {
+              const points = flattenBezier([current, ...controls]);
+              if (!curve.length) curve.push(current);
+              for (let index = 1; index < points.length; index++)
+                curve.push(points[index]);
+            }
           }
           current = controls[controls.length - 1];
         } else if (command === 4) {
@@ -206,13 +222,43 @@ export class SnapIndex {
   private longSegments: number[] = [];
   private cellSize: number;
   private bounds: Box;
+  private beziers: CurveIndex;
+  private curveEndpoints: CurveIndex;
+  private curveMidpoints: CurveIndex;
 
-  constructor(segments: Segment[], bounds: Box, curves: Point[][] = []) {
+  constructor(
+    segments: Segment[],
+    bounds: Box,
+    curves: Point[][] = [],
+    beziers: Point[][] = [],
+  ) {
     this.curves = new CurveIndex(curves, bounds);
+    this.beziers = new CurveIndex(
+      beziers.filter(
+        (path) =>
+          (path.length === 3 || path.length === 4) &&
+          path.every(
+            (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+          ),
+      ),
+      bounds,
+    );
+    const paths = (
+      curves.length ? curves : this.beziers.paths.map(flattenBezier)
+    ).filter((path) => path.length > 1);
+    this.curveEndpoints = new CurveIndex(
+      paths.flatMap((path) => [[path[0]], [path[path.length - 1]]]),
+      bounds,
+    );
+    this.curveMidpoints = new CurveIndex(
+      paths.map((path) => [pathMidpoint(path)]),
+      bounds,
+    );
     this.bounds = bounds;
     const [left, bottom, right, top] = bounds;
     this.segments = segments.filter(
       ({ a, b }) =>
+        [a.x, a.y, b.x, b.y].every(Number.isFinite) &&
         Math.max(a.x, b.x) >= left &&
         Math.min(a.x, b.x) <= right &&
         Math.max(a.y, b.y) >= bottom &&
@@ -250,8 +296,19 @@ export class SnapIndex {
     point: Point,
     radius: number,
     axis?: OrthoConstraint,
+    options?: SnapOptions,
   ): SnapHit | null {
-    if (!Number.isFinite(radius) || radius <= 0) return null;
+    if (
+      !Number.isFinite(radius) ||
+      radius <= 0 ||
+      !Number.isFinite(point.x) ||
+      !Number.isFinite(point.y)
+    )
+      return null;
+    const enabled = new Set(
+      options?.enabled ?? ["endpoint", "midpoint", "intersection"],
+    );
+    if (!enabled.size) return null;
     const ids = new Set(this.longSegments);
     const [left, bottom, right, top] = this.bounds;
     const x1 = Math.floor(Math.max(left, point.x - radius) / this.cellSize);
@@ -267,9 +324,21 @@ export class SnapIndex {
       .filter((segment) => segmentDistance(point, segment) <= radius);
     let hit: SnapHit | null = null;
     let best = radius;
-    const priority = { endpoint: 0, intersection: 1, midpoint: 2 };
+    let nearestHit: SnapHit | null = null;
+    let nearestDistance = radius;
+    const priority = {
+      endpoint: 0,
+      intersection: 1,
+      midpoint: 2,
+      perpendicular: 3,
+      tangent: 4,
+      nearest: 5,
+    };
     const consider = (candidate: Point, kind: SnapHit["kind"]) => {
       if (
+        !enabled.has(kind) ||
+        !Number.isFinite(candidate.x) ||
+        !Number.isFinite(candidate.y) ||
         candidate.x < left ||
         candidate.x > right ||
         candidate.y < bottom ||
@@ -278,6 +347,14 @@ export class SnapIndex {
       )
         return;
       const delta = Math.hypot(point.x - candidate.x, point.y - candidate.y);
+      // Near is a fallback and must not reduce the discrete intersection search radius.
+      if (kind === "nearest") {
+        if (delta <= nearestDistance) {
+          nearestDistance = delta;
+          nearestHit = { point: candidate, kind };
+        }
+        return;
+      }
       if (
         delta <= radius &&
         (delta < best - 1e-7 ||
@@ -290,16 +367,58 @@ export class SnapIndex {
     };
     for (let i = 0; i < nearby.length; i++) {
       const segment = nearby[i];
-      consider(segment.a, "endpoint");
-      consider(segment.b, "endpoint");
-      consider(
-        {
-          x: (segment.a.x + segment.b.x) / 2,
-          y: (segment.a.y + segment.b.y) / 2,
-        },
-        "midpoint",
-      );
+      if (enabled.has("endpoint")) {
+        consider(segment.a, "endpoint");
+        consider(segment.b, "endpoint");
+      }
+      if (enabled.has("midpoint"))
+        consider(
+          {
+            x: (segment.a.x + segment.b.x) / 2,
+            y: (segment.a.y + segment.b.y) / 2,
+          },
+          "midpoint",
+        );
     }
+    if (enabled.has("endpoint"))
+      for (const [candidate] of this.curveEndpoints.nearby(point, radius))
+        consider(candidate, "endpoint");
+    if (enabled.has("midpoint"))
+      for (const [candidate] of this.curveMidpoints.nearby(point, radius))
+        consider(candidate, "midpoint");
+    for (const kind of ["nearest", "perpendicular"] as const) {
+      const reference = kind === "nearest" ? point : options?.anchor;
+      if (!enabled.has(kind) || !reference) continue;
+      const candidates = this.beziers.paths.length
+        ? nearby
+        : [
+            ...nearby,
+            ...this.curves
+              .nearby(point, radius)
+              .flatMap((path) =>
+                path.slice(1).map((b, index) => ({ a: path[index], b })),
+              ),
+          ];
+      for (const { a, b } of candidates) {
+        const dx = b.x - a.x,
+          dy = b.y - a.y;
+        const lengthSquared = dx * dx + dy * dy;
+        if (!lengthSquared) continue;
+        let t =
+          ((reference.x - a.x) * dx + (reference.y - a.y) * dy) / lengthSquared;
+        if (kind === "perpendicular" && (t < 0 || t > 1)) continue;
+        t = Math.max(0, Math.min(1, t));
+        consider({ x: a.x + t * dx, y: a.y + t * dy }, kind);
+      }
+    }
+    for (const kind of ["nearest", "perpendicular", "tangent"] as const) {
+      const reference = kind === "nearest" ? point : options?.anchor;
+      if (!enabled.has(kind) || !reference) continue;
+      for (const controls of this.beziers.nearby(point, radius))
+        for (const candidate of bezierCandidates(controls, reference, kind))
+          consider(candidate, kind);
+    }
+    if (!enabled.has("intersection")) return hit ?? nearestHit;
     // A closer intersection must lie on two segments inside the current best distance.
     const crossings = nearby
       .map((segment) => ({
@@ -318,7 +437,7 @@ export class SnapIndex {
         if (crossing) consider(crossing, "intersection");
       }
     }
-    return hit;
+    return hit ?? nearestHit;
   }
 }
 
@@ -328,8 +447,10 @@ export class CurveIndex {
   readonly paths: Point[][];
   private boxes: Box[];
   private cellSize: number;
+  private bounds: Box;
   constructor(paths: Point[][], bounds: Box) {
     this.paths = paths;
+    this.bounds = bounds;
     this.cellSize = Math.max(
       1,
       Math.max(bounds[2] - bounds[0], bounds[3] - bounds[1]) / 64,
@@ -348,6 +469,14 @@ export class CurveIndex {
       return [left, bottom, right, top];
     });
     this.boxes.forEach(([left, bottom, right, top], id) => {
+      if (
+        ![left, bottom, right, top].every(Number.isFinite) ||
+        right < bounds[0] ||
+        left > bounds[2] ||
+        top < bounds[1] ||
+        bottom > bounds[3]
+      )
+        return;
       const x1 = Math.floor(Math.max(left, bounds[0]) / this.cellSize),
         x2 = Math.floor(Math.min(right, bounds[2]) / this.cellSize);
       const y1 = Math.floor(Math.max(bottom, bounds[1]) / this.cellSize),
@@ -365,32 +494,49 @@ export class CurveIndex {
         }
     });
   }
-  nearest(point: Point, radius: number): Point[] | null {
-    if (!Number.isFinite(radius) || radius <= 0) return null;
+  nearby(point: Point, radius: number): Point[][] {
+    if (
+      !Number.isFinite(radius) ||
+      radius <= 0 ||
+      !Number.isFinite(point.x) ||
+      !Number.isFinite(point.y)
+    )
+      return [];
     const ids = new Set(this.longCurves);
     for (
-      let x = Math.floor((point.x - radius) / this.cellSize);
-      x <= Math.floor((point.x + radius) / this.cellSize);
+      let x = Math.floor(
+        Math.max(this.bounds[0], point.x - radius) / this.cellSize,
+      );
+      x <=
+      Math.floor(Math.min(this.bounds[2], point.x + radius) / this.cellSize);
       x++
     )
       for (
-        let y = Math.floor((point.y - radius) / this.cellSize);
-        y <= Math.floor((point.y + radius) / this.cellSize);
+        let y = Math.floor(
+          Math.max(this.bounds[1], point.y - radius) / this.cellSize,
+        );
+        y <=
+        Math.floor(Math.min(this.bounds[3], point.y + radius) / this.cellSize);
         y++
       )
         for (const id of this.cells.get(`${x},${y}`) || []) ids.add(id);
+    return [...ids]
+      .filter((id) => {
+        const box = this.boxes[id];
+        return (
+          point.x >= box[0] - radius &&
+          point.x <= box[2] + radius &&
+          point.y >= box[1] - radius &&
+          point.y <= box[3] + radius
+        );
+      })
+      .map((id) => this.paths[id]);
+  }
+  nearest(point: Point, radius: number): Point[] | null {
+    if (!Number.isFinite(radius) || radius <= 0) return null;
     let best = radius,
       result: Point[] | null = null;
-    for (const id of ids) {
-      const box = this.boxes[id];
-      if (
-        point.x < box[0] - best ||
-        point.x > box[2] + best ||
-        point.y < box[1] - best ||
-        point.y > box[3] + best
-      )
-        continue;
-      const path = this.paths[id];
+    for (const path of this.nearby(point, radius)) {
       for (let i = 1; i < path.length; i++) {
         const delta = segmentDistance(point, { a: path[i - 1], b: path[i] });
         if (delta <= best) {
