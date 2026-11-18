@@ -23,7 +23,13 @@ npm run package:win
 
 Test entry points generate synthetic geometric PDFs and a blank password test fixture. Generated fixtures are Git-ignored. UI tests use isolated temporary profiles and write to the ignored `test-results/` directory. Packages are written to `release/<version>/`. Building the macOS package requires macOS.
 
-## Current batch · 2026-11-18 Tab and thin lines after changing drawings
+## 2026-11-18 Dim It 0.5.0 stable
+
+The stable release rebuilds beta.9 with the same application behavior and project formats. The production build, 46 unit tests, 12 desktop workflows and targeted packaged Mac checks passed. The Mac ARM64 installer is Developer ID signed and notarized. The Windows x64 NSIS installer was cross-built and unpacked to verify its version and resources. Native Windows testing is pending.
+
+Local installers and the SHA-256 list are in `release/0.5.0/`. Validation logs are under `test-results/release-0.5.0-*.log`. [Download 0.5.0](https://github.com/bzbaizhen/dim-it/releases/tag/v0.5.0)
+
+## 2026-11-18 Tab and thin lines after changing drawings
 
 Mouse page navigation, page shortcuts and opening a drawing return focus to the canvas. Activating a page button with Enter keeps keyboard navigation in the page list. Opening a PDF recreates its canvases so the thin-line setting controls actual stroke width.
 

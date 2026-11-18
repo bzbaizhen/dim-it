@@ -23,7 +23,13 @@ npm run package:win
 
 测试入口自动生成纯几何 PDF 与空白加密校验样本，生成文件被 Git 忽略。UI 测试使用隔离临时用户数据目录，输出位于被忽略的 `test-results/`。打包输出在 `release/<version>/`。打包 macOS 需要 Mac 环境。
 
-## 当前批次 · 2026-11-18 换图纸后 Tab 细线切换
+## 2026-11-18 Dim It 0.5.0 正式版
+
+0.5.0 基于 beta.9 重新构建，应用逻辑和项目格式沿用测试版。生产构建、46 项单测、12 组桌面回归及 Mac 打包版专项通过。Mac ARM64 安装包通过 Developer ID 签名与 Apple 公证。Windows x64 NSIS 安装包已交叉构建并解包核验版本与资源，Windows 实机验收待完成。
+
+本地安装包与 SHA-256 清单在 `release/0.5.0/`，验收日志见 `test-results/release-0.5.0-*.log`。[下载 0.5.0](https://github.com/bzbaizhen/dim-it/releases/tag/v0.5.0)
+
+## 2026-11-18 换图纸后 Tab 细线切换
 
 鼠标点缩略图或分页按钮后，焦点原先停在按钮，Tab 被浏览器用于焦点导航。现在鼠标换页、页面快捷键和打开图纸会把焦点交回画布。使用 Enter 浏览分页按钮以及在输入框和弹窗内按 Tab，仍遵循键盘焦点导航。原画布复用时，新 PDF 继承了旧 PDF 的描边处理。画布现在按文档加载实例重建，关闭细线时恢复实际原始线宽。
 
